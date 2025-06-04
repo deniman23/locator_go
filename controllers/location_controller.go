@@ -1,20 +1,20 @@
 package controllers
 
 import (
+	"locator/service"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"locator/dao"
 )
 
 // LocationController отвечает за обработку запросов, связанных с локациями.
 type LocationController struct {
-	Service *dao.LocationService
+	Service *service.LocationService
 }
 
 // NewLocationController создаёт новый экземпляр контроллера для работы с локациями.
-func NewLocationController(service *dao.LocationService) *LocationController {
+func NewLocationController(service *service.LocationService) *LocationController {
 	return &LocationController{Service: service}
 }
 

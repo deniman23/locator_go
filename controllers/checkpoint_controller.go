@@ -1,20 +1,26 @@
 package controllers
 
 import (
+	"locator/service"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"locator/dao"
 )
 
 // CheckpointController отвечает за обработку запросов, связанных с чекпоинтами.
 type CheckpointController struct {
-	Service *dao.CheckpointService
+	Service         *service.CheckpointService
+	LocationService *service.LocationService
 }
 
 // NewCheckpointController создаёт новый экземпляр контроллера для работы с чекпоинтами.
-func NewCheckpointController(service *dao.CheckpointService) *CheckpointController {
-	return &CheckpointController{Service: service}
+// Он принимает и CheckpointService, и LocationService для проверки попадания локации в чекпоинт.
+func NewCheckpointController(checkpointService *service.CheckpointService, locationService *service.LocationService) *CheckpointController {
+	return &CheckpointController{
+		Service:         checkpointService,
+		LocationService: locationService,
+	}
 }
 
 // PostCheckpoint обрабатывает POST-запрос для создания нового чекпоинта.
@@ -45,4 +51,38 @@ func (cc *CheckpointController) GetCheckpoints(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, checkpoints)
+}
+
+// CheckUserInCheckpoint обрабатывает GET-запрос для проверки, находится ли локация пользователя в указанном чекпоинте.
+// Ожидает в параметрах запроса: user_id и checkpoint_id.
+func (cc *CheckpointController) CheckUserInCheckpoint(ctx *gin.Context) {
+	userIDStr := ctx.Query("user_id")
+	checkpointID := ctx.Query("checkpoint_id")
+	if userIDStr == "" || checkpointID == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Не переданы необходимые параметры: user_id и checkpoint_id"})
+		return
+	}
+	userID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "user_id должен быть числом"})
+		return
+	}
+
+	// Получаем локацию пользователя через LocationService.
+	loc, err := cc.LocationService.GetLocation(userID)
+	if err != nil || loc == nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Локация пользователя не найдена"})
+		return
+	}
+
+	// Получаем чекпоинт по его ID.
+	cp, err := cc.Service.GetCheckpointByID(checkpointID)
+	if err != nil || cp == nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Чекпоинт не найден"})
+		return
+	}
+
+	// Проверяем, находится ли локация пользователя в зоне чекпоинта.
+	inCheckpoint := cc.Service.IsLocationInCheckpoint(loc, cp)
+	ctx.JSON(http.StatusOK, gin.H{"in_checkpoint": inCheckpoint})
 }

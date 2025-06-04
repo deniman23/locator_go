@@ -1,7 +1,7 @@
 package dao
 
 import (
-	"locator/location"
+	"locator/models"
 
 	"gorm.io/gorm"
 )
@@ -17,8 +17,8 @@ func NewLocationDAO(db *gorm.DB) *LocationDAO {
 }
 
 // GetByUserID возвращает запись о местоположении по идентификатору пользователя.
-func (dao *LocationDAO) GetByUserID(userID int) (*location.Location, error) {
-	var loc location.Location
+func (dao *LocationDAO) GetByUserID(userID int) (*models.Location, error) {
+	var loc models.Location
 	if err := dao.DB.Where("user_id = ?", userID).First(&loc).Error; err != nil {
 		return nil, err
 	}
@@ -26,18 +26,18 @@ func (dao *LocationDAO) GetByUserID(userID int) (*location.Location, error) {
 }
 
 // Create вставляет новую запись о местоположении.
-func (dao *LocationDAO) Create(loc *location.Location) error {
+func (dao *LocationDAO) Create(loc *models.Location) error {
 	return dao.DB.Create(loc).Error
 }
 
 // Update сохраняет изменения существующей записи.
-func (dao *LocationDAO) Update(loc *location.Location) error {
+func (dao *LocationDAO) Update(loc *models.Location) error {
 	return dao.DB.Save(loc).Error
 }
 
 // GetAll возвращает все записи о местоположениях.
-func (dao *LocationDAO) GetAll() ([]location.Location, error) {
-	var locations []location.Location
+func (dao *LocationDAO) GetAll() ([]models.Location, error) {
+	var locations []models.Location
 	if err := dao.DB.Find(&locations).Error; err != nil {
 		return nil, err
 	}
