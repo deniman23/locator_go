@@ -12,14 +12,20 @@ import (
 type CheckpointController struct {
 	Service         *service.CheckpointService
 	LocationService *service.LocationService
+	VisitService    *service.VisitService // добавляем сервис для работы с визитами
 }
 
 // NewCheckpointController создаёт новый экземпляр контроллера для работы с чекпоинтами.
-// Он принимает и CheckpointService, и LocationService для проверки попадания локации в чекпоинт.
-func NewCheckpointController(checkpointService *service.CheckpointService, locationService *service.LocationService) *CheckpointController {
+// Теперь он принимает также VisitService.
+func NewCheckpointController(
+	checkpointService *service.CheckpointService,
+	locationService *service.LocationService,
+	visitService *service.VisitService,
+) *CheckpointController {
 	return &CheckpointController{
 		Service:         checkpointService,
 		LocationService: locationService,
+		VisitService:    visitService,
 	}
 }
 
@@ -54,17 +60,25 @@ func (cc *CheckpointController) GetCheckpoints(ctx *gin.Context) {
 }
 
 // CheckUserInCheckpoint обрабатывает GET-запрос для проверки, находится ли локация пользователя в указанном чекпоинте.
-// Ожидает в параметрах запроса: user_id и checkpoint_id.
+// Если пользователь входит в зону, создаётся новый визит (при отсутствии активного);
+// если выходит — завершается активный визит, записывая время окончания и длительность визита.
 func (cc *CheckpointController) CheckUserInCheckpoint(ctx *gin.Context) {
 	userIDStr := ctx.Query("user_id")
-	checkpointID := ctx.Query("checkpoint_id")
-	if userIDStr == "" || checkpointID == "" {
+	checkpointIDStr := ctx.Query("checkpoint_id")
+	if userIDStr == "" || checkpointIDStr == "" {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Не переданы необходимые параметры: user_id и checkpoint_id"})
 		return
 	}
+
 	userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "user_id должен быть числом"})
+		return
+	}
+
+	checkpointID, err := strconv.Atoi(checkpointIDStr)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "checkpoint_id должен быть числом"})
 		return
 	}
 
@@ -84,5 +98,28 @@ func (cc *CheckpointController) CheckUserInCheckpoint(ctx *gin.Context) {
 
 	// Проверяем, находится ли локация пользователя в зоне чекпоинта.
 	inCheckpoint := cc.Service.IsLocationInCheckpoint(loc, cp)
+
+	// Логика визитов:
+	// Если пользователь находится в зоне и активного визита ещё нет – стартуем новый визит.
+	// Если же пользователь покинул зону и активный визит существует – завершаем визит.
+	activeVisit, _ := cc.VisitService.GetActiveVisit(userID, checkpointID)
+	if inCheckpoint {
+		if activeVisit == nil {
+			_, err := cc.VisitService.StartVisit(userID, checkpointID)
+			if err != nil {
+				ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка начала визита"})
+				return
+			}
+		}
+	} else {
+		if activeVisit != nil {
+			err := cc.VisitService.EndVisit(activeVisit)
+			if err != nil {
+				ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка завершения визита"})
+				return
+			}
+		}
+	}
+
 	ctx.JSON(http.StatusOK, gin.H{"in_checkpoint": inCheckpoint})
 }

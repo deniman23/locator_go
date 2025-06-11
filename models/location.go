@@ -1,15 +1,11 @@
 package models
 
-import (
-	"time"
-
-	"github.com/google/uuid"
-)
+import "time"
 
 // Location описывает данные о местоположении отдельного объекта (например, сотрудника или ребенка).
 type Location struct {
-	// ID — уникальный идентификатор записи (UUID).
-	ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	// ID — уникальный идентификатор записи (числовой, автоинкремент).
+	ID int `gorm:"primaryKey;autoIncrement" json:"id"`
 
 	// UserID — идентификатор пользователя (целое число).
 	UserID int `gorm:"not null" json:"user_id"`
@@ -31,7 +27,7 @@ type Location struct {
 func NewLocation(userID int, lat, lon float64) *Location {
 	now := time.Now()
 	return &Location{
-		ID:        uuid.New(),
+		ID:        0, // GORM установит значение автоматически при вставке записи.
 		UserID:    userID,
 		Latitude:  lat,
 		Longitude: lon,

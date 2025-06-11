@@ -1,16 +1,12 @@
 package models
 
-import (
-	"time"
-
-	"github.com/google/uuid"
-)
+import "time"
 
 // Checkpoint описывает точку (чекпоинт), которую должен посещать пользователь.
 // Например, если родитель хочет следить за тем, был ли ребенок в школе.
 type Checkpoint struct {
-	// ID — уникальный идентификатор записи (UUID).
-	ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	// ID — уникальный идентификатор записи (числовой, автоинкремент).
+	ID int `gorm:"primaryKey;autoIncrement" json:"id"`
 
 	// Name — название чекпоинта, например "Школа".
 	Name string `gorm:"not null" json:"name"`

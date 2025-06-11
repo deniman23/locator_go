@@ -5,8 +5,6 @@ import (
 	"locator/models"
 	"math"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // CheckpointService отвечает за бизнес-логику, связанную с операциями над чекпоинтами.
@@ -22,7 +20,7 @@ func NewCheckpointService(dao *dao.CheckpointDAO) *CheckpointService {
 // CreateCheckpoint создаёт новый чекпоинт с заданными параметрами.
 func (svc *CheckpointService) CreateCheckpoint(name string, lat, lon, radius float64) (*models.Checkpoint, error) {
 	cp := &models.Checkpoint{
-		ID:        uuid.New(),
+		// ID не задаём, так как оно будет автоинкрементным (устанавливается базой данных)
 		Name:      name,
 		Latitude:  lat,
 		Longitude: lon,
@@ -42,13 +40,12 @@ func (svc *CheckpointService) GetCheckpoints() ([]models.Checkpoint, error) {
 }
 
 // GetCheckpointByID возвращает чекпоинт по его ID.
-func (svc *CheckpointService) GetCheckpointByID(id string) (*models.Checkpoint, error) {
+func (svc *CheckpointService) GetCheckpointByID(id int) (*models.Checkpoint, error) {
 	return svc.DAO.GetByID(id)
 }
 
 // IsLocationInCheckpoint проверяет, находится ли заданная локация внутри данного чекпоинта.
-// Он рассчитывает расстояние между координатами локации и чекпоинта с помощью формулы Хаверсина
-// и сравнивает его с радиусом чекпоинта.
+// От расстояния (вычисляемого по формуле Хаверсина) зависит, считается ли локация находящейся в зоне чекпоинта.
 func (svc *CheckpointService) IsLocationInCheckpoint(loc *models.Location, checkpoint *models.Checkpoint) bool {
 	distance := haversineDistance(loc.Latitude, loc.Longitude, checkpoint.Latitude, checkpoint.Longitude)
 	return distance <= checkpoint.Radius

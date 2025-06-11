@@ -31,7 +31,7 @@ func (dao *CheckpointDAO) GetAll() ([]models.Checkpoint, error) {
 }
 
 // GetByID возвращает чекпоинт по его ID.
-func (dao *CheckpointDAO) GetByID(id string) (*models.Checkpoint, error) {
+func (dao *CheckpointDAO) GetByID(id int) (*models.Checkpoint, error) {
 	var cp models.Checkpoint
 	if err := dao.DB.First(&cp, "id = ?", id).Error; err != nil {
 		return nil, err
