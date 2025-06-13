@@ -1,9 +1,12 @@
 package controllers
 
 import (
+	"locator/config/messaging"
+	"locator/models"
 	"locator/service"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -12,20 +15,23 @@ import (
 type CheckpointController struct {
 	Service         *service.CheckpointService
 	LocationService *service.LocationService
-	VisitService    *service.VisitService // добавляем сервис для работы с визитами
+	VisitService    *service.VisitService // для работы с визитами
+	Publisher       *messaging.Publisher  // интеграция RabbitMQ
 }
 
 // NewCheckpointController создаёт новый экземпляр контроллера для работы с чекпоинтами.
-// Теперь он принимает также VisitService.
+// Обратите внимание, что теперь передаётся Publisher для отправки событий в RabbitMQ.
 func NewCheckpointController(
 	checkpointService *service.CheckpointService,
 	locationService *service.LocationService,
 	visitService *service.VisitService,
+	publisher *messaging.Publisher,
 ) *CheckpointController {
 	return &CheckpointController{
 		Service:         checkpointService,
 		LocationService: locationService,
 		VisitService:    visitService,
+		Publisher:       publisher,
 	}
 }
 
@@ -60,8 +66,8 @@ func (cc *CheckpointController) GetCheckpoints(ctx *gin.Context) {
 }
 
 // CheckUserInCheckpoint обрабатывает GET-запрос для проверки, находится ли локация пользователя в указанном чекпоинте.
-// Если пользователь входит в зону, создаётся новый визит (при отсутствии активного);
-// если выходит — завершается активный визит, записывая время окончания и длительность визита.
+// Вместо синхронной обработки, формируется событие и отправляется в очередь RabbitMQ для асинхронной обработки.
+// После публикации события клиенту возвращается сообщение о том, что событие отправлено на обработку.
 func (cc *CheckpointController) CheckUserInCheckpoint(ctx *gin.Context) {
 	userIDStr := ctx.Query("user_id")
 	checkpointIDStr := ctx.Query("checkpoint_id")
@@ -96,30 +102,21 @@ func (cc *CheckpointController) CheckUserInCheckpoint(ctx *gin.Context) {
 		return
 	}
 
-	// Проверяем, находится ли локация пользователя в зоне чекпоинта.
-	inCheckpoint := cc.Service.IsLocationInCheckpoint(loc, cp)
-
-	// Логика визитов:
-	// Если пользователь находится в зоне и активного визита ещё нет – стартуем новый визит.
-	// Если же пользователь покинул зону и активный визит существует – завершаем визит.
-	activeVisit, _ := cc.VisitService.GetActiveVisit(userID, checkpointID)
-	if inCheckpoint {
-		if activeVisit == nil {
-			_, err := cc.VisitService.StartVisit(userID, checkpointID)
-			if err != nil {
-				ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка начала визита"})
-				return
-			}
-		}
-	} else {
-		if activeVisit != nil {
-			err := cc.VisitService.EndVisit(activeVisit)
-			if err != nil {
-				ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка завершения визита"})
-				return
-			}
-		}
+	// Формируем событие на основе полученных данных.
+	// Модель LocationEvent должна содержать поля: UserID, CheckpointID, Latitude, Longitude, OccurredAt.
+	event := models.LocationEvent{
+		UserID:       userID,
+		CheckpointID: checkpointID,
+		Latitude:     loc.Latitude,
+		Longitude:    loc.Longitude,
+		OccurredAt:   time.Now(),
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{"in_checkpoint": inCheckpoint})
+	// Публикуем событие в RabbitMQ для дальнейшей асинхронной обработки (например, создания или завершения визита).
+	if err := cc.Publisher.PublishJSON(event); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка публикации события"})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "Событие отправлено на обработку"})
 }

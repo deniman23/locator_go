@@ -21,6 +21,15 @@ func (svc *LocationService) GetLocation(userID int) (*models.Location, error) {
 	return svc.DAO.GetByUserID(userID)
 }
 
+// CreateLocation создаёт новую запись о местоположении без обновления существующей.
+func (svc *LocationService) CreateLocation(userID int, lat, lon float64) (*models.Location, error) {
+	newLocation := models.NewLocation(userID, lat, lon)
+	if err := svc.DAO.Create(newLocation); err != nil {
+		return nil, err
+	}
+	return newLocation, nil
+}
+
 // CreateOrUpdateLocation создаёт новую запись или обновляет существующую.
 func (svc *LocationService) CreateOrUpdateLocation(userID int, lat, lon float64) (*models.Location, error) {
 	loc, err := svc.DAO.GetByUserID(userID)

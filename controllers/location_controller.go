@@ -1,21 +1,28 @@
 package controllers
 
 import (
+	"locator/config/messaging"
+	"locator/models"
 	"locator/service"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 // LocationController отвечает за обработку запросов, связанных с локациями.
 type LocationController struct {
-	Service *service.LocationService
+	Service   *service.LocationService
+	Publisher *messaging.Publisher // Предположим, что Publisher интегрирован в сервисы и доступен из контроллера
 }
 
 // NewLocationController создаёт новый экземпляр контроллера для работы с локациями.
-func NewLocationController(service *service.LocationService) *LocationController {
-	return &LocationController{Service: service}
+func NewLocationController(service *service.LocationService, publisher *messaging.Publisher) *LocationController {
+	return &LocationController{
+		Service:   service,
+		Publisher: publisher,
+	}
 }
 
 // GetLocation обрабатывает GET-запрос для получения данных о местоположении по user_id.
@@ -39,6 +46,7 @@ func (lc *LocationController) GetLocation(ctx *gin.Context) {
 }
 
 // PostLocation обрабатывает POST-запрос для создания или обновления локации.
+// PostLocation обрабатывает POST-запрос для создания новой локации.
 func (lc *LocationController) PostLocation(ctx *gin.Context) {
 	var req struct {
 		UserID    int     `json:"user_id"`
@@ -49,11 +57,27 @@ func (lc *LocationController) PostLocation(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Некорректное тело запроса"})
 		return
 	}
-	location, err := lc.Service.CreateOrUpdateLocation(req.UserID, req.Latitude, req.Longitude)
+
+	// Создаём новую запись о локации вместо обновления существующей.
+	location, err := lc.Service.CreateLocation(req.UserID, req.Latitude, req.Longitude)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания или обновления записи"})
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания записи"})
 		return
 	}
+
+	// Формируем событие для RabbitMQ на основе новой локации.
+	event := models.LocationEvent{
+		UserID:     req.UserID,
+		Latitude:   req.Latitude,
+		Longitude:  req.Longitude,
+		OccurredAt: time.Now(),
+	}
+	// Публикуем событие в RabbitMQ.
+	if err := lc.Publisher.PublishJSON(event); err != nil {
+		// Ошибку публикации можно залогировать, но не блокировать ответ клиенту.
+		// log.Printf("Ошибка публикации события: %v", err)
+	}
+
 	ctx.JSON(http.StatusOK, location)
 }
 
