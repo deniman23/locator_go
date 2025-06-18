@@ -13,7 +13,9 @@ import (
 )
 
 // InitDB инициализирует подключение к базе данных Postgres через GORM.
-func InitDB() *gorm.DB {
+// Принимает параметр dbLogger для логирования SQL-запросов. Если dbLogger равен nil,
+// используется логгер по умолчанию с уровнем Info.
+func InitDB(dbLogger logger.Interface) *gorm.DB {
 	// Загрузка переменных окружения из файла .env.
 	// Если файл не найден, используются системные переменные.
 	err := godotenv.Load(".env")
@@ -36,8 +38,14 @@ func InitDB() *gorm.DB {
 	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		host, port, user, password, dbname, sslmode)
 
+	// Если переданный dbLogger равен nil, устанавливаем логгер по умолчанию.
+	if dbLogger == nil {
+		dbLogger = logger.Default.LogMode(logger.Info)
+	}
+
+	// Открытие подключения к базе данных с использованием заданного логгера.
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info), // Для продакшена можно использовать logger.Silent.
+		Logger: dbLogger,
 	})
 	if err != nil {
 		log.Fatalf("Ошибка подключения к БД: %v", err)

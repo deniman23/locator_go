@@ -1,0 +1,7 @@
+logs/
+*.log
+
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/dictionaries
+.idea/libraries

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm/logger"
 	"locator/config"
 	"locator/config/messaging"
 	"locator/controllers"
@@ -14,20 +15,21 @@ import (
 )
 
 // App содержит зависимости приложения.
-// Можно добавить сюда любые необходимые элементы, например, пул соединений, конфигурацию и т.д.
 type App struct {
-	Router    *gin.Engine // предположим, что в вашем роутере у вас тип RouterEngine
-	DB        interface{} // оставляем в виде interface{} или конкретный *gorm.DB
+	Router    *gin.Engine // основная маршрутизация приложения
+	DB        interface{} // подключение к БД (например, *gorm.DB)
 	RMQClient *messaging.RabbitMQClient
 }
 
 // InitializeApp собирает все зависимости приложения и возвращает готовый инстанс App.
-func InitializeApp() (*App, error) {
-	// 1. Инициализация подключения к БД.
-	dbConn := config.InitDB()
+// Теперь функция принимает параметр dbLogger, который используется для инициализации БД с нужным уровнем логирования SQL-запросов.
+func InitializeApp(dbLogger logger.Interface) (*App, error) {
+	// 1. Инициализация подключения к БД с использованием переданного логгера для SQL-запросов.
+	// Для этого предполагается, что функция config.InitDB обновлена и принимает параметр logger.
+	dbConn := config.InitDB(dbLogger)
 
 	// Здесь можно проводить миграции, либо оставить их в main или в отдельном скрипте.
-	// dbConn.AutoMigrate(&models.Location{}, &models.Checkpoint{}, &models.Visit{})
+	// Пример: dbConn.AutoMigrate(&models.Location{}, &models.Checkpoint{}, &models.Visit{})
 
 	// 2. Инициализация подключения к RabbitMQ.
 	rmqURL := "amqp://guest:guest@localhost:5672/"
@@ -69,14 +71,13 @@ func InitializeApp() (*App, error) {
 	checkpointController := controllers.NewCheckpointController(checkpointService, locationService, visitService, publisher)
 	visitController := controllers.NewVisitController(visitService)
 
-	// Инициализируем EventController, передавая в него Publisher.
+	// Инициализация EventController с Publisher.
 	eventController := controllers.NewEventController(publisher)
 
-	// 4. Инициализация роутера с добавлением EventController.
-	// Обратите внимание, что функция InitRoutes теперь принимает 4 параметра.
+	// 4. Инициализация роутера с добавлением всех контроллеров.
 	routerEngine := router.InitRoutes(locationController, checkpointController, visitController, eventController)
 
-	// Запуск потребителя сообщений (consumer) для обработки событий из очереди "location_events".
+	// Запуск потребителя сообщений для обработки событий из очереди "location_events".
 	visitEventProcessor := service.NewVisitEventProcessor(checkpointService, visitService)
 	consumer := messaging.NewConsumer(rmqClient, queue.Name)
 	go func() {
@@ -88,13 +89,7 @@ func InitializeApp() (*App, error) {
 		}
 	}()
 
-	app := &App{
-		Router:    routerEngine,
-		DB:        dbConn,
-		RMQClient: rmqClient,
-	}
-
-	// Демонстрационная публикация события (опционально).
+	// Пример публикации демо-события (опционально).
 	go func() {
 		demoEvent := map[string]interface{}{
 			"user_id":       1,
@@ -110,6 +105,12 @@ func InitializeApp() (*App, error) {
 			log.Println("Демо-событие опубликовано в RabbitMQ")
 		}
 	}()
+
+	app := &App{
+		Router:    routerEngine,
+		DB:        dbConn,
+		RMQClient: rmqClient,
+	}
 
 	return app, nil
 }
