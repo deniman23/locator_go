@@ -1,0 +1,465 @@
+/* Переопределяем некоторые базовые стили */
+#root {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: #f5f5f5;
+  color: #333;
+  display: block;
+  place-items: normal;
+}
+
+/* Стили приложения */
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+header {
+  background-color: #2c3e50;
+  color: white;
+  padding: 1rem 2rem;
+}
+
+nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+nav ul {
+  display: flex;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+nav li {
+  margin-right: 1.5rem;
+}
+
+nav a {
+  color: white;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+nav a:hover {
+  text-decoration: underline;
+  color: white;
+}
+
+.user-controls {
+  display: flex;
+  align-items: center;
+}
+
+.user-info {
+  margin-right: 15px;
+  color: white;
+}
+
+.logout-button {
+  background-color: transparent;
+  border: 1px solid white;
+  color: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.logout-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+main {
+  flex: 1;
+  padding: 1rem 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Стили для дашборда */
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.map-container {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.active-visits {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.active-visits ul {
+  list-style: none;
+  padding: 0;
+}
+
+.active-visits li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+.active-visits li:last-child {
+  border-bottom: none;
+}
+
+/* Стили для чекпоинтов */
+.checkpoints-page {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.checkpoints-list {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.checkpoints-list table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.checkpoints-list th,
+.checkpoints-list td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+
+.checkpoints-list th {
+  font-weight: 600;
+}
+
+.checkpoint-form {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.checkpoint-form form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.checkpoint-form input {
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  width: 100%;
+}
+
+.checkpoint-form button {
+  padding: 0.5rem 1rem;
+  background-color: #2c3e50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.checkpoint-form button:disabled {
+  background-color: #95a5a6;
+}
+
+.alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 1rem;
+  background-color: #f8f9fa;
+  border-left: 4px solid #2c3e50;
+  border-radius: 4px;
+}
+
+/* Стили для визитов */
+.visits-page {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.user-selector {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.user-selector input {
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  width: 100px;
+}
+
+.user-selector button {
+  padding: 0.5rem 1rem;
+  background-color: #2c3e50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.visits-list table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.visits-list th,
+.visits-list td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+
+.visits-list th {
+  font-weight: 600;
+}
+
+.leaflet-control-attribution a:first-child {
+  display: none !important;
+}
+
+/* Если нужно убрать "Leaflet" вместе с иконкой */
+.leaflet-control-attribution:before {
+  content: "";
+  display: none !important;
+}
+
+.reset-button {
+  margin-top: 8px;
+  padding: 5px 10px;
+  background-color: #f5f5f5;
+  border: 1px solid #2c3e50;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.reset-button:hover {
+  background-color: #e0e0e0;
+}
+
+.leaflet-control-attribution a[href*="leafletjs"] {
+  display: none !important;
+}
+
+.leaflet-control-attribution:before {
+  content: "";
+  display: none !important;
+}
+
+/* Стили для страницы авторизации */
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: calc(100vh - 0px); /* Без навигации в верхней части */
+  background-color: #f5f5f5;
+}
+
+.login-form {
+  background-color: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 400px;
+}
+
+.login-form h2 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: #2c3e50;
+}
+
+.login-form p {
+  margin-bottom: 1.5rem;
+  color: #666;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.login-button {
+  width: 100%;
+  padding: 0.75rem;
+  background-color: #2c3e50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.login-button:hover {
+  background-color: #1a252f;
+}
+
+.login-button:disabled {
+  background-color: #95a5a6;
+  cursor: not-allowed;
+}
+
+.error-message {
+  padding: 0.75rem;
+  border-radius: 4px;
+  background-color: #ffebee;
+  color: #c62828;
+  margin-bottom: 1rem;
+}
+
+.loading-overlay {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  font-size: 1.2rem;
+}
+
+/* Стили для управления пользователями */
+.user-management {
+  background-color: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.user-management h2 {
+  margin-top: 0;
+  color: #2c3e50;
+  margin-bottom: 1.5rem;
+}
+
+.create-user-form {
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+}
+
+.create-user-form h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: #2c3e50;
+}
+
+.form-check {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.form-check input {
+  margin-right: 0.5rem;
+}
+
+.create-button {
+  padding: 0.5rem 1rem;
+  background-color: #2c3e50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.create-button:hover {
+  background-color: #1a252f;
+}
+
+.create-button:disabled {
+  background-color: #95a5a6;
+  cursor: not-allowed;
+}
+
+.users-list h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: #2c3e50;
+}
+
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.users-table th,
+.users-table td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+}
+
+.users-table th {
+  background-color: #f2f2f2;
+  font-weight: 600;
+}
+
+.users-table tr:hover {
+  background-color: #f9f9f9;
+}
+
+.map-error {
+  margin-bottom: 10px;
+}
+
+.loading-message {
+  padding: 20px;
+  text-align: center;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.map-controls {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.map-info {
+  background-color: #f5f5f5;
+  border-top: 1px solid #e0e0e0;
+  padding: 10px;
+  font-size: 14px;
+}
