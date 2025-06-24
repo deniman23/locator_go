@@ -1,23 +1,43 @@
 import React, { useEffect, useState } from 'react';
 import type {Visit} from '../types/models';
 import { visitApi } from '../services/api';
+import { useAuth } from '../context/AuthContext'; // Добавляем импорт
 
 const UserVisits: React.FC = () => {
     const [visits, setVisits] = useState<Visit[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [userId, setUserId] = useState('1'); // По умолчанию пользователь с ID 1
+
+    // Получаем API ключ
+    const { apiKey } = useAuth();
 
     const fetchVisits = async () => {
         if (!userId || isNaN(parseInt(userId))) {
             return;
         }
 
+        // Проверяем наличие API ключа
+        const localStorageKey = localStorage.getItem('apiKey');
+        const keyToUse = apiKey || localStorageKey;
+
+        if (!keyToUse) {
+            setError('Отсутствует API ключ. Пожалуйста, войдите в систему.');
+            setLoading(false);
+            return;
+        }
+
         try {
             setLoading(true);
-            const response = await visitApi.getByUserId(parseInt(userId));
+            setError(null);
+
+            // Передаем API ключ в запрос
+            const response = await visitApi.getByUserId(parseInt(userId), keyToUse);
+
             setVisits(response.data);
         } catch (error) {
             console.error('Ошибка при загрузке визитов:', error);
+            setError('Ошибка при загрузке визитов');
         } finally {
             setLoading(false);
         }
@@ -25,11 +45,13 @@ const UserVisits: React.FC = () => {
 
     useEffect(() => {
         fetchVisits();
-    }, [userId]);
+    }, [userId, apiKey]); // Добавляем apiKey в зависимости
 
     return (
         <div className="visits-page">
             <h1>История визитов</h1>
+
+            {error && <div className="error-message">{error}</div>}
 
             <div className="user-selector">
                 <label htmlFor="user-id">ID пользователя:</label>

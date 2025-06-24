@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useEffect} from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Checkpoints from './pages/Checkpoints';
@@ -25,7 +25,14 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 // Компонент навигации с учетом состояния авторизации
 const Navigation: React.FC = () => {
-    const { isAuthenticated, user, logout } = useAuth();
+    const { isAuthenticated, user, logout, refreshUser } = useAuth();
+
+    // Обновляем информацию о пользователе при монтировании компонента
+    useEffect(() => {
+        if (isAuthenticated) {
+            refreshUser();
+        }
+    }, [isAuthenticated]); // Зависимость от isAuthenticated, чтобы не обновлять при каждом рендере
 
     if (!isAuthenticated) return null;
 

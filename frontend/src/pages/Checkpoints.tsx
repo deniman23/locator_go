@@ -2,18 +2,44 @@ import React, { useEffect, useState } from 'react';
 import type {Checkpoint} from '../types/models';
 import { checkpointApi } from '../services/api';
 import CheckpointForm from '../components/CheckpointForm';
+import { useAuth } from '../context/AuthContext'; // Добавьте этот импорт!
 
 const Checkpoints: React.FC = () => {
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    // Получаем API ключ из контекста авторизации
+    const { apiKey } = useAuth(); // Добавьте это!
 
     const fetchCheckpoints = async () => {
+        // Для отладки
+        console.log('fetchCheckpoints вызван, apiKey =', apiKey);
+
+        // Берем ключ из localStorage если он отсутствует в контексте
+        const localStorageKey = localStorage.getItem('apiKey');
+        const keyToUse = apiKey || localStorageKey;
+
+        console.log('Используем ключ:', keyToUse);
+
+        if (!keyToUse) {
+            setError('Отсутствует API ключ. Пожалуйста, войдите в систему.');
+            setLoading(false);
+            return;
+        }
+
         try {
             setLoading(true);
-            const response = await checkpointApi.getAll();
+            setError(null);
+
+            // Передаем API ключ в запрос!
+            const response = await checkpointApi.getAll(keyToUse);
+
+            console.log('Ответ API:', response);
             setCheckpoints(response.data);
         } catch (error) {
             console.error('Ошибка при загрузке чекпоинтов:', error);
+            setError('Ошибка при загрузке чекпоинтов');
         } finally {
             setLoading(false);
         }
@@ -21,13 +47,15 @@ const Checkpoints: React.FC = () => {
 
     useEffect(() => {
         fetchCheckpoints();
-    }, []);
+    }, [apiKey]); // Перезагружаем при изменении API ключа
 
     return (
         <div className="checkpoints-page">
             <h1>Управление чекпоинтами</h1>
 
             <CheckpointForm onSuccess={fetchCheckpoints} />
+
+            {error && <div className="error-message">{error}</div>}
 
             <div className="checkpoints-list">
                 <h2>Существующие чекпоинты</h2>

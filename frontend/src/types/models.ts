@@ -47,6 +47,8 @@ export interface User {
     is_admin: boolean;
     created_at: string;
     updated_at: string;
+    qr_code: string;
+
 }
 
 export interface AuthState {

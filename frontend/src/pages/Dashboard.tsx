@@ -2,23 +2,41 @@ import React, { useEffect, useState } from 'react';
 import MapComponent from '../components/Map';
 import type { Visit } from '../types/models';
 import { visitApi } from '../services/api';
+import { useAuth } from '../context/AuthContext'; // Добавляем импорт
 
 const Dashboard: React.FC = () => {
     const [activeVisits, setActiveVisits] = useState<Visit[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    // Получаем API ключ
+    const { apiKey } = useAuth();
 
     useEffect(() => {
         const fetchActiveVisits = async () => {
+            // Проверяем наличие API ключа
+            const localStorageKey = localStorage.getItem('apiKey');
+            const keyToUse = apiKey || localStorageKey;
+
+            if (!keyToUse) {
+                setError('Отсутствует API ключ. Пожалуйста, войдите в систему.');
+                setLoading(false);
+                return;
+            }
+
             try {
                 setLoading(true);
-                // Получаем визиты пользователя с ID 1 (для примера)
-                // В реальном приложении здесь можно было бы получать все активные визиты
-                const response = await visitApi.getByUserId(1);
-                // Фильтруем только активные визиты (где end_at == null)
+                setError(null);
+
+                // Передаем API ключ в запрос
+                const response = await visitApi.getByUserId(1, keyToUse);
+
+                // Фильтруем только активные визиты
                 const active = response.data.filter(visit => visit.end_at === null);
                 setActiveVisits(active);
             } catch (error) {
                 console.error('Ошибка при загрузке активных визитов:', error);
+                setError('Ошибка при загрузке активных визитов');
             } finally {
                 setLoading(false);
             }
@@ -30,11 +48,14 @@ const Dashboard: React.FC = () => {
         const interval = setInterval(fetchActiveVisits, 30000);
 
         return () => clearInterval(interval);
-    }, []);
+    }, [apiKey]); // Добавляем apiKey в зависимости
 
     return (
         <div className="dashboard">
             <h1>Панель мониторинга</h1>
+
+            {error && <div className="error-message">{error}</div>}
+
             <div className="map-container">
                 <MapComponent />
             </div>

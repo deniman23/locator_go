@@ -3,12 +3,18 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { userApi } from '../services/api';
 import type {User} from '../types/models';
+import QRCodeDisplay from './QRCodeDisplay';
 
 const UserManagement: React.FC = () => {
     const { apiKey, user: currentUser } = useAuth();
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    // Состояние для отображения QR-кода
+    const [showQRCode, setShowQRCode] = useState(false);
+    // Состояние для хранения выбранного пользователя для QR-кода
+    const [selectedUser, setSelectedUser] = useState<User | null>(null);
 
     // Состояние для формы создания пользователя
     const [newUserName, setNewUserName] = useState('');
@@ -60,6 +66,18 @@ const UserManagement: React.FC = () => {
         }
     };
 
+    // Обработчик для отображения QR-кода пользователя
+    const handleShowUserQRCode = (user: User) => {
+        setSelectedUser(user);
+        setShowQRCode(true);
+    };
+
+    // Закрытие модального окна с QR-кодом
+    const handleCloseQRCode = () => {
+        setShowQRCode(false);
+        setSelectedUser(null);
+    };
+
     // Если текущий пользователь не админ, не показываем страницу управления
     if (currentUser && !currentUser.is_admin) {
         return (
@@ -73,6 +91,15 @@ const UserManagement: React.FC = () => {
     return (
         <div className="user-management">
             <h2>Управление пользователями</h2>
+
+            {/* Модальное окно с QR-кодом */}
+            {showQRCode && (
+                <QRCodeDisplay
+                    onClose={handleCloseQRCode}
+                    userId={selectedUser?.id}
+                    userName={selectedUser?.name}
+                />
+            )}
 
             {/* Форма создания пользователя */}
             <div className="create-user-form">
@@ -126,25 +153,33 @@ const UserManagement: React.FC = () => {
                     <p>Пользователи не найдены.</p>
                 ) : (
                     <table className="users-table">
-                        <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Имя</th>
-                            <th>Роль</th>
-                            <th>Дата создания</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        {users.map(user => (
-                            <tr key={user.id}>
-                                <td>{user.id}</td>
-                                <td>{user.name}</td>
-                                <td>{user.is_admin ? 'Администратор' : 'Пользователь'}</td>
-                                <td>{new Date(user.created_at).toLocaleString()}</td>
-                            </tr>
-                        ))}
-                        </tbody>
-                    </table>
+                    <thead>
+                    <tr>
+                    <th>ID</th>
+                    <th>Имя</th>
+                    <th>Роль</th>
+                    <th>Дата создания</th>
+                    <th>Действия</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                {users.map(user => (
+                    <tr key={user.id}>
+                <td>{user.id}</td>
+                <td>{user.name}</td>
+                <td>{user.is_admin ? 'Администратор' : 'Пользователь'}</td>
+                <td>{new Date(user.created_at).toLocaleString()}</td>
+                <td>
+                    <button
+                        className="qr-code-button-small"
+                        onClick={() => handleShowUserQRCode(user)}>
+                        QR-код
+                    </button>
+                </td>
+            </tr>
+            ))}
+        </tbody>
+                </table>
                 )}
             </div>
         </div>
