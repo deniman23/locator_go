@@ -38,3 +38,7 @@ func (dao *CheckpointDAO) GetByID(id int) (*models.Checkpoint, error) {
 	}
 	return &cp, nil
 }
+
+func (dao *CheckpointDAO) Update(cp *models.Checkpoint) error {
+	return dao.DB.Save(cp).Error
+}

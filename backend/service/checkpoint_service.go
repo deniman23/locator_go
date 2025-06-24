@@ -51,6 +51,29 @@ func (svc *CheckpointService) GetCheckpoints() ([]models.Checkpoint, error) {
 	return checkpoints, nil
 }
 
+// UpdateCheckpoint обновляет чекпоинт с заданным ID новыми параметрами.
+func (svc *CheckpointService) UpdateCheckpoint(id int, name string, lat, lon, radius float64) (*models.Checkpoint, error) {
+	cp, err := svc.GetCheckpointByID(id)
+	if err != nil {
+		log.Printf("[UpdateCheckpoint] Не удалось найти чекпоинт с ID=%d: %v", id, err)
+		return nil, err
+	}
+	cp.Name = name
+	cp.Latitude = lat
+	cp.Longitude = lon
+	cp.Radius = radius
+	cp.UpdatedAt = time.Now()
+
+	// Обновляем данные в БД через метод Update из DAO.
+	if err := svc.DAO.Update(cp); err != nil {
+		log.Printf("[UpdateCheckpoint] Ошибка обновления чекпоинта с ID=%d: %v", id, err)
+		return nil, err
+	}
+	log.Printf("[UpdateCheckpoint] Чекпоинт обновлён: ID=%d, Name=%s, Latitude=%.6f, Longitude=%.6f, Radius=%.2f",
+		cp.ID, cp.Name, cp.Latitude, cp.Longitude, cp.Radius)
+	return cp, nil
+}
+
 // GetCheckpointByID возвращает чекпоинт по его ID.
 func (svc *CheckpointService) GetCheckpointByID(id int) (*models.Checkpoint, error) {
 	log.Printf("[GetCheckpointByID] Запрос на получение чекпоинта с ID: %d", id)

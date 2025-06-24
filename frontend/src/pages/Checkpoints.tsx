@@ -1,16 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import type {Checkpoint} from '../types/models';
 import { checkpointApi } from '../services/api';
-import CheckpointForm from '../components/CheckpointForm';
-import { useAuth } from '../context/AuthContext'; // Добавьте этот импорт!
+import CheckpointForm from '../components/Checkpoint/CheckpointForm';
+import CheckpointEditForm from '../components/Checkpoint/CheckpointEditForm';
+import { useAuth } from '../context/AuthContext';
 
 const Checkpoints: React.FC = () => {
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [editingCheckpoint, setEditingCheckpoint] = useState<Checkpoint | null>(null);
 
     // Получаем API ключ из контекста авторизации
-    const { apiKey } = useAuth(); // Добавьте это!
+    const { apiKey } = useAuth();
 
     const fetchCheckpoints = async () => {
         // Для отладки
@@ -49,11 +51,32 @@ const Checkpoints: React.FC = () => {
         fetchCheckpoints();
     }, [apiKey]); // Перезагружаем при изменении API ключа
 
+    const handleEdit = (checkpoint: Checkpoint) => {
+        setEditingCheckpoint(checkpoint);
+    };
+
+    const handleCancelEdit = () => {
+        setEditingCheckpoint(null);
+    };
+
+    const handleEditSuccess = () => {
+        fetchCheckpoints();
+        setEditingCheckpoint(null);
+    };
+
     return (
         <div className="checkpoints-page">
             <h1>Управление чекпоинтами</h1>
 
-            <CheckpointForm onSuccess={fetchCheckpoints} />
+            {editingCheckpoint ? (
+                <CheckpointEditForm
+                    checkpoint={editingCheckpoint}
+                    onSuccess={handleEditSuccess}
+                    onCancel={handleCancelEdit}
+                />
+            ) : (
+                <CheckpointForm onSuccess={fetchCheckpoints} />
+            )}
 
             {error && <div className="error-message">{error}</div>}
 
@@ -69,6 +92,7 @@ const Checkpoints: React.FC = () => {
                             <th>Название</th>
                             <th>Координаты</th>
                             <th>Радиус (м)</th>
+                            <th>Действия</th>
                         </tr>
                         </thead>
                         <tbody>
@@ -78,6 +102,14 @@ const Checkpoints: React.FC = () => {
                                 <td>{cp.name}</td>
                                 <td>{cp.latitude.toFixed(6)}, {cp.longitude.toFixed(6)}</td>
                                 <td>{cp.radius}</td>
+                                <td>
+                                    <button
+                                        onClick={() => handleEdit(cp)}
+                                        className="edit-button"
+                                    >
+                                        Редактировать
+                                    </button>
+                                </td>
                             </tr>
                         ))}
                         </tbody>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { checkpointApi } from '../services/api';
-import { useAuth } from '../context/AuthContext'; // Импортируем хук useAuth
+import { checkpointApi } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 
 interface CheckpointFormProps {
     onSuccess?: () => void | Promise<void>;

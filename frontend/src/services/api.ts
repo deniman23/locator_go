@@ -42,6 +42,10 @@ export const checkpointApi = {
     create: (checkpoint: { name: string, latitude: number, longitude: number, radius: number }, apiKey?: string) =>
         api.post<Checkpoint>('/checkpoint/', checkpoint, withApiKey(apiKey)),
 
+    // Обновление существующего чекпоинта
+    update: (id: number, checkpoint: { name: string, latitude: number, longitude: number, radius: number }, apiKey?: string) =>
+        api.put<Checkpoint>(`/checkpoint/${id}`, checkpoint, withApiKey(apiKey)),
+
     // Проверка, находится ли пользователь в чекпоинте
     checkUserInCheckpoint: (userId: number, checkpointId: number, apiKey?: string) =>
         api.get(`/checkpoint/check?user_id=${userId}&checkpoint_id=${checkpointId}`, withApiKey(apiKey))

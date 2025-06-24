@@ -65,6 +65,35 @@ func (cc *CheckpointController) GetCheckpoints(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, checkpoints)
 }
 
+// UpdateCheckpoint обрабатывает PUT-запрос для обновления существующего чекпоинта.
+func (cc *CheckpointController) UpdateCheckpoint(ctx *gin.Context) {
+	// Получаем ID чекпоинта из параметров пути
+	idStr := ctx.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID чекпоинта"})
+		return
+	}
+
+	var req struct {
+		Name      string  `json:"name"`
+		Latitude  float64 `json:"latitude"`
+		Longitude float64 `json:"longitude"`
+		Radius    float64 `json:"radius"`
+	}
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Некорректное тело запроса"})
+		return
+	}
+
+	cp, err := cc.Service.UpdateCheckpoint(id, req.Name, req.Latitude, req.Longitude, req.Radius)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка обновления чекпоинта"})
+		return
+	}
+	ctx.JSON(http.StatusOK, cp)
+}
+
 // CheckUserInCheckpoint обрабатывает GET-запрос для проверки, находится ли локация пользователя в указанном чекпоинте.
 // Вместо синхронной обработки, формируется событие и отправляется в очередь RabbitMQ для асинхронной обработки.
 // После публикации события клиенту возвращается сообщение о том, что событие отправлено на обработку.

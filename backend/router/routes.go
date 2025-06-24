@@ -53,7 +53,7 @@ func InitRoutes(
 		{
 			checkpointGroup.GET("/", checkpointController.GetCheckpoints)
 			checkpointGroup.POST("/", checkpointController.PostCheckpoint)
-			// Новый маршрут для проверки, находится ли локация пользователя в чекпоинте.
+			checkpointGroup.PUT("/:id", checkpointController.UpdateCheckpoint)
 			checkpointGroup.GET("/check", checkpointController.CheckUserInCheckpoint)
 		}
 
