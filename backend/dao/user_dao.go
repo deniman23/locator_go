@@ -20,6 +20,10 @@ func (dao *UserDAO) Create(user *models.User) error {
 	return dao.DB.Create(user).Error
 }
 
+func (dao *UserDAO) Update(user *models.User) error {
+	return dao.DB.Save(user).Error
+}
+
 // GetByID возвращает пользователя по его ID.
 func (dao *UserDAO) GetByID(id int) (*models.User, error) {
 	var user models.User
@@ -32,7 +36,7 @@ func (dao *UserDAO) GetByID(id int) (*models.User, error) {
 // GetAll возвращает список всех пользователей.
 func (dao *UserDAO) GetAll() ([]models.User, error) {
 	var users []models.User
-	if err := dao.DB.Find(&users).Error; err != nil {
+	if err := dao.DB.Order("id ASC").Find(&users).Error; err != nil {
 		return nil, err
 	}
 	return users, nil

@@ -5,52 +5,48 @@ import (
 	"log"
 	"os"
 
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"locator/dao"
 	"locator/models"
+	"locator/service"
 )
 
-// DefaultAdmin SeedDefaultAdmin создает дефолтного администратора, если его нет в базе.
+// DefaultAdmin DefaultAdminSeed создаёт дефолтного администратора (если его нет в базе)
+// с использованием UserService, что обеспечивает генерацию QR кода и корректное хэширование API ключа.
 func DefaultAdmin(db *gorm.DB) {
 	// Читаем данные из переменных окружения
 	defaultName := os.Getenv("DEFAULT_ADMIN_NAME")
 	defaultAPIKey := os.Getenv("DEFAULT_ADMIN_API_KEY")
-
 	if defaultName == "" || defaultAPIKey == "" {
-		log.Println("Данные дефолтного администратора (DEFAULT_ADMIN_NAME или DEFAULT_ADMIN_API_KEY) не заданы в .env")
+		log.Println("Данные дефолтного администратора (DEFAULT_ADMIN_NAME или DEFAULT_ADMIN_API_KEY) не заданы в переменных окружения")
 		return
 	}
 
-	// Проверяем, существует ли уже пользователь с таким API-ключом
+	// Проверяем, существует ли уже администратор с заданным именем и флагом is_admin=true.
 	var admin models.User
-	err := db.Where("api_key = ?", defaultAPIKey).First(&admin).Error
+	err := db.Where("name = ? AND is_admin = ?", defaultName, true).First(&admin).Error
 	if err == nil {
 		log.Println("Дефолтный администратор уже существует")
 		return
 	}
 
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		log.Printf("Ошибка поиска пользователя: %v", err)
+		log.Printf("Ошибка при поиске дефолтного администратора: %v", err)
 		return
 	}
 
-	// Хэшируем API ключ с использованием bcrypt
-	hashedKey, err := bcrypt.GenerateFromPassword([]byte(defaultAPIKey), bcrypt.DefaultCost)
+	// Инициализируем DAO и создаём экземпляр UserService
+	userDAO := dao.NewUserDAO(db)
+	userService := service.NewUserService(userDAO)
+
+	// Создаём администратора через UserService с явным указанием API ключа
+	user, plainKey, err := userService.CreateUser(defaultName, true, defaultAPIKey)
 	if err != nil {
-		log.Printf("Ошибка хеширования API ключа: %v", err)
-		return
-	}
-
-	// Если пользователь не найден, создаем нового с хэшированным API ключом
-	admin = models.User{
-		Name:    defaultName,
-		ApiKey:  string(hashedKey),
-		IsAdmin: true,
-		// Прочие поля можно заполнить при необходимости
-	}
-	if err := db.Create(&admin).Error; err != nil {
 		log.Printf("Ошибка создания дефолтного администратора: %v", err)
 		return
 	}
-	log.Println("Дефолтный администратор успешно создан")
+
+	// Поле QRCode в модели обновится внутри UserService с публичной ссылкой на QR картинку,
+	// а в логах мы получаем также plaintext API ключ (он доступен только при создании).
+	log.Printf("Дефолтный администратор успешно создан: %s (ID: %d). Plain API ключ: %s", user.Name, user.ID, plainKey)
 }

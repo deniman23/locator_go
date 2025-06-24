@@ -3,16 +3,16 @@ package service
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
-	"locator/dao"
-	"locator/models"
+	"fmt"
 	"log"
 	"os"
 
+	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
+	"locator/dao"
+	"locator/models"
 )
 
-// UserService отвечает за бизнес-логику, связанную с пользователями.
 type UserService struct {
 	DAO *dao.UserDAO
 }
@@ -32,15 +32,16 @@ func generateSecureAPIKey() (string, error) {
 	return hex.EncodeToString(key), nil
 }
 
-func (svc *UserService) CreateUser(name string, isAdmin bool) (*models.User, string, error) {
-	// Если это дефолтный пользователь и задан ключ из ENV, используем его
-	envKey := os.Getenv("DEFAULT_ADMIN_API_KEY")
+// CreateUser Обновленный метод CreateUser
+func (svc *UserService) CreateUser(name string, isAdmin bool, forceAPIKey ...string) (*models.User, string, error) {
 	var plainKey string
 	var err error
 
-	if envKey != "" {
-		plainKey = envKey
+	// Используем forceAPIKey только если он явно передан (для сидера)
+	if len(forceAPIKey) > 0 && forceAPIKey[0] != "" {
+		plainKey = forceAPIKey[0]
 	} else {
+		// Для всех обычных пользователей генерируем новый случайный ключ
 		plainKey, err = generateSecureAPIKey()
 		if err != nil {
 			log.Printf("[UserService CreateUser] Ошибка генерации API ключа: %v", err)
@@ -65,28 +66,72 @@ func (svc *UserService) CreateUser(name string, isAdmin bool) (*models.User, str
 		return nil, "", err
 	}
 
+	// Формируем содержимое для QR‑кода на основе plaintext API‑ключа.
+	qrContent := fmt.Sprintf(`{"user_id": %d, "api_key": "%s"}`, user.ID, plainKey)
+
+	// Определяем путь для сохранения изображения QR‑кода.
+	// Убедитесь, что папка static/qrcode существует и доступна для записи.
+	qrFilePath := fmt.Sprintf("static/qrcode/%d.png", user.ID)
+	err = qrcode.WriteFile(qrContent, qrcode.Medium, 256, qrFilePath)
+	if err != nil {
+		log.Printf("[UserService CreateUser] Ошибка генерации QR кода: %v", err)
+		return nil, "", err
+	}
+
+	// Формируем публичную ссылку на QR‑код, используя BASE_URL из переменных окружения
+	baseURL := os.Getenv("BASE_URL")
+
+	qrCodeURL := fmt.Sprintf("%s/static/qrcode/%d.png", baseURL, user.ID)
+	user.QRCode = qrCodeURL
+
+	// Обновляем запись пользователя, сохраняя ссылку на QR‑код.
+	if err := svc.DAO.Update(user); err != nil {
+		log.Printf("[UserService CreateUser] Ошибка обновления пользователя с QR кодом: %v", err)
+		return nil, "", err
+	}
+
 	log.Printf("[UserService CreateUser] Пользователь создан: ID=%d, Name=%s, IsAdmin=%t", user.ID, user.Name, user.IsAdmin)
-	// Возвращаем plaintext API-ключ только при создании (его больше не показываем)
+	// Возвращаем plaintext API‑ключ только при создании (в дальнейшем не показываем его)
 	return user, plainKey, nil
 }
 
-// AuthenticateUser проверяет, соответствует ли предоставленный API-ключ хэшированному значению в записях.
+// AuthenticateUser проверяет, соответствует ли предоставленный API‑ключ хешированному значению в базе.
+// AuthenticateUser проверяет API-ключ с правильной обработкой указателей
 func (svc *UserService) AuthenticateUser(providedKey string) (*models.User, error) {
+	if providedKey == "" {
+		return nil, fmt.Errorf("API ключ не может быть пустым")
+	}
+
 	users, err := svc.DAO.GetAll()
 	if err != nil {
-		log.Printf("[UserService AuthenticateUser] Ошибка получения пользователей: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("ошибка доступа к базе данных")
 	}
+
+	// Вместо работы с указателями в цикле, найдем ID подходящего пользователя
+	var matchedUserID int = -1
 
 	for _, user := range users {
 		if err := bcrypt.CompareHashAndPassword([]byte(user.ApiKey), []byte(providedKey)); err == nil {
-			log.Printf("[UserService AuthenticateUser] Аутентификация успешна для пользователя ID=%d", user.ID)
-			return &user, nil
+			matchedUserID = user.ID
+			log.Printf("[AuthenticateUser] Найдено совпадение для пользователя ID=%d, Name=%s",
+				user.ID, user.Name)
+			break
 		}
 	}
 
-	log.Printf("[UserService AuthenticateUser] Недействительный API ключ")
-	return nil, errors.New("недействительный API ключ")
+	// Если нашли подходящего пользователя, загружаем его заново из базы по ID
+	if matchedUserID != -1 {
+		matchedUser, err := svc.DAO.GetByID(matchedUserID)
+		if err != nil {
+			return nil, fmt.Errorf("ошибка получения данных пользователя")
+		}
+		log.Printf("[AuthenticateUser] Успешная аутентификация пользователя: ID=%d, Name=%s",
+			matchedUser.ID, matchedUser.Name)
+		return matchedUser, nil
+	}
+
+	log.Printf("[AuthenticateUser] Недействительный API ключ")
+	return nil, fmt.Errorf("недействительный API ключ")
 }
 
 // GetUserByID возвращает пользователя по его ID.
