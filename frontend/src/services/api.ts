@@ -52,10 +52,41 @@ export const checkpointApi = {
 };
 
 // API для работы с визитами
+// API для работы с визитами
 export const visitApi = {
+    // Получение визитов с возможностью фильтрации
+    getWithFilters: (params: {
+        id?: number,
+        user_id?: number,
+        checkpoint_id?: number
+    }, apiKey?: string) => {
+        // Создаем строку запроса из параметров
+        const queryParams = new URLSearchParams();
+        if (params.id) queryParams.append('id', params.id.toString());
+        if (params.user_id) queryParams.append('user_id', params.user_id.toString());
+        if (params.checkpoint_id) queryParams.append('checkpoint_id', params.checkpoint_id.toString());
+
+        const queryString = queryParams.toString();
+        const url = queryString ? `/visits/?${queryString}` : '/visits/';
+
+        return api.get<Visit[]>(url, withApiKey(apiKey));
+    },
+
+    // Получение всех визитов (для админов)
+    getAll: (apiKey?: string) =>
+        api.get<Visit[]>('/visits/', withApiKey(apiKey)),
+
+    // Получение визита по ID
+    getById: (id: number, apiKey?: string) =>
+        api.get<Visit[]>(`/visits/?id=${id}`, withApiKey(apiKey)),
+
     // Получение визитов пользователя
     getByUserId: (userId: number, apiKey?: string) =>
-        api.get<Visit[]>(`/visits/?user_id=${userId}`, withApiKey(apiKey))
+        api.get<Visit[]>(`/visits/?user_id=${userId}`, withApiKey(apiKey)),
+
+    // Получение визитов для чекпоинта
+    getByCheckpointId: (checkpointId: number, apiKey?: string) =>
+        api.get<Visit[]>(`/visits/?checkpoint_id=${checkpointId}`, withApiKey(apiKey))
 };
 
 // API для работы с событиями

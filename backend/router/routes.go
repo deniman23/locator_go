@@ -60,8 +60,8 @@ func InitRoutes(
 		// Группа маршрутов для работы с визитами.
 		visitGroup := protectedApiGroup.Group("/visits")
 		{
-			// Эндпоинт для получения истории визитов пользователя.
-			visitGroup.GET("/", visitController.GetVisitsByUser)
+			// Эндпоинт для получения визитов с фильтром.
+			visitGroup.GET("/", visitController.GetVisitsByFilters)
 		}
 
 		// Группа маршрутов для публикации событий (например, в RabbitMQ).

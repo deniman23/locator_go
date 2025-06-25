@@ -4,6 +4,8 @@ import (
 	"locator/dao"
 	"locator/models"
 	"log"
+	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -36,7 +38,7 @@ func (vs *VisitService) StartVisit(userID int, checkpointID int) (*models.Visit,
 	visit := &models.Visit{
 		UserID:       userID,
 		CheckpointID: checkpointID,
-		StartAt:      time.Now(),
+		StartAt:      time.Now().UTC(),
 	}
 	err := vs.DAO.Create(visit)
 	if err != nil {
@@ -49,27 +51,63 @@ func (vs *VisitService) StartVisit(userID int, checkpointID int) (*models.Visit,
 
 // EndVisit завершает активный визит, фиксируя время окончания и вычисляя длительность.
 func (vs *VisitService) EndVisit(visit *models.Visit) error {
-	log.Printf("[EndVisit] Завершение визита: userID=%d, checkpointID=%d, VisitID=%d", visit.UserID, visit.CheckpointID, visit.ID)
-	now := time.Now()
-	visit.EndAt = &now
-	visit.Duration = now.Sub(visit.StartAt).Seconds()
+	log.Printf("[EndVisit] Завершение визита: userID=%d, checkpointID=%d, VisitID=%d",
+		visit.UserID, visit.CheckpointID, visit.ID)
+
+	// Приводим обе временные метки к UTC, чтобы избежать проблем с часовыми поясами.
+	nowUTC := time.Now().UTC()
+	startUTC := visit.StartAt.UTC()
+
+	visit.EndAt = &nowUTC
+	// Расчет длительности в секундах без дробной части.
+	visit.Duration = int(nowUTC.Sub(startUTC).Seconds())
+
 	err := vs.DAO.Update(visit)
 	if err != nil {
-		log.Printf("[EndVisit] Ошибка завершения визита для userID=%d, checkpointID=%d, VisitID=%d: %v", visit.UserID, visit.CheckpointID, visit.ID, err)
+		log.Printf("[EndVisit] Ошибка завершения визита для userID=%d, checkpointID=%d, VisitID=%d: %v",
+			visit.UserID, visit.CheckpointID, visit.ID, err)
 		return err
 	}
-	log.Printf("[EndVisit] Визит успешно завершен: userID=%d, checkpointID=%d, VisitID=%d, Длительность=%.2f секунд", visit.UserID, visit.CheckpointID, visit.ID, visit.Duration)
+	log.Printf("[EndVisit] Визит успешно завершен: userID=%d, checkpointID=%d, VisitID=%d, Длительность=%d секунд",
+		visit.UserID, visit.CheckpointID, visit.ID, visit.Duration)
 	return nil
 }
 
-// GetVisitsByUser возвращает все визиты для указанного пользователя.
-func (vs *VisitService) GetVisitsByUser(userID int) ([]models.Visit, error) {
-	log.Printf("[GetVisitsByUser] Запрос всех визитов для userID=%d", userID)
-	visits, err := vs.DAO.GetVisitsByUser(userID)
-	if err != nil {
-		log.Printf("[GetVisitsByUser] Ошибка получения визитов для userID=%d: %v", userID, err)
-		return nil, err
+// GetVisits возвращает список визитов с применением переданных фильтров.
+func (vs *VisitService) GetVisits(filters map[string]interface{}) ([]models.Visit, error) {
+	return vs.DAO.GetVisits(filters)
+}
+
+// GetVisitsByFilters анализирует query-параметры, формирует фильтры и возвращает список визитов.
+func (vs *VisitService) GetVisitsByFilters(params url.Values) ([]models.Visit, error) {
+	filters := make(map[string]interface{})
+
+	if idStr := params.Get("id"); idStr != "" {
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			log.Printf("[GetVisitsByFilters] неверный формат параметра id: %v", err)
+		} else {
+			filters["id"] = id
+		}
 	}
-	log.Printf("[GetVisitsByUser] Найдено %d визитов для userID=%d", len(visits), userID)
-	return visits, nil
+
+	if userIDStr := params.Get("user_id"); userIDStr != "" {
+		userID, err := strconv.Atoi(userIDStr)
+		if err != nil {
+			log.Printf("[GetVisitsByFilters] неверный формат параметра user_id: %v", err)
+		} else {
+			filters["user_id"] = userID
+		}
+	}
+
+	if checkpointIDStr := params.Get("checkpoint_id"); checkpointIDStr != "" {
+		checkpointID, err := strconv.Atoi(checkpointIDStr)
+		if err != nil {
+			log.Printf("[GetVisitsByFilters] неверный формат параметра checkpoint_id: %v", err)
+		} else {
+			filters["checkpoint_id"] = checkpointID
+		}
+	}
+
+	return vs.GetVisits(filters)
 }

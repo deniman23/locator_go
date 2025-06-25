@@ -1,11 +1,9 @@
 package controllers
 
 import (
-	"net/http"
-	"strconv"
-
 	"github.com/gin-gonic/gin"
 	"locator/service"
+	"net/http"
 )
 
 // VisitController отвечает за обработку запросов, связанных с визитами (посещениями чекпоинтов).
@@ -20,21 +18,8 @@ func NewVisitController(visitService *service.VisitService) *VisitController {
 	}
 }
 
-// GetVisitsByUser возвращает историю посещений для указанного пользователя.
-func (vc *VisitController) GetVisitsByUser(ctx *gin.Context) {
-	userIDStr := ctx.Query("user_id")
-	if userIDStr == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Параметр user_id обязателен"})
-		return
-	}
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "user_id должен быть числом"})
-		return
-	}
-
-	// Здесь предполагается, что в сервисе или DAO реализован метод получения списка визитов.
-	visits, err := vc.VisitService.GetVisitsByUser(userID)
+func (vc *VisitController) GetVisitsByFilters(ctx *gin.Context) {
+	visits, err := vc.VisitService.GetVisitsByFilters(ctx.Request.URL.Query())
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка получения визитов"})
 		return

@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS visits (
                                       checkpoint_id INTEGER NOT NULL,
                                       start_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
                                       end_at TIMESTAMP WITHOUT TIME ZONE,
-                                      duration DOUBLE PRECISION NOT NULL,
+                                      duration INTEGER NOT NULL,
                                       created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                                       updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                                       CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
