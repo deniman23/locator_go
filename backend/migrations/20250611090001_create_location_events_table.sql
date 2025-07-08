@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE location_events (
                                  id SERIAL PRIMARY KEY,
                                  user_id INTEGER NOT NULL,
@@ -8,3 +9,6 @@ CREATE TABLE location_events (
                                  payload JSONB,  -- дополнительные данные, если требуются
                                  processed BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+-- +goose Down
+DROP TABLE IF EXISTS location_events;

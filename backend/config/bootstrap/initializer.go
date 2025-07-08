@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"locator/models"
 	"locator/seed"
 	"log"
 	"time"
@@ -29,10 +30,15 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	// Для этого предполагается, что функция config.InitDB обновлена и принимает параметр logger.
 	dbConn := config.InitDB(dbLogger)
 
+	err := dbConn.AutoMigrate(&models.User{}, &models.Location{}, &models.Checkpoint{}, &models.Visit{})
+	if err != nil {
+		return nil, err
+	}
+
 	seed.DefaultAdmin(dbConn)
 
 	// 2. Инициализация подключения к RabbitMQ.
-	rmqURL := "amqp://guest:guest@localhost:5672/"
+	rmqURL := "amqp://guest:guest@locator-rabbitmq:5672/"
 	rmqClient, err := messaging.NewRabbitMQClient(rmqURL)
 	if err != nil {
 		return nil, err

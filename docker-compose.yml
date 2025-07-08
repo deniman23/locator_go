@@ -1,0 +1,61 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: locator-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=admin
+      - DB_NAME=locator_db
+      - DB_PASSWORD=admin
+      - DB_SSLMODE=disable
+      - DEFAULT_ADMIN_NAME=admin
+      - DEFAULT_ADMIN_API_KEY=rg42if20fh2s
+      - BASE_URL=http://localhost:8080
+    depends_on:
+      - db
+    networks:
+      default:
+        aliases:
+          - backend
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: locator-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  db:
+    image: postgres:13-alpine
+    container_name: locator-db
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=locator_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./backend/migrations:/docker-entrypoint-initdb.d
+      - db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: locator-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672" # для веб-интерфейса
+    restart: unless-stopped
+
+volumes:
+  db_data:
