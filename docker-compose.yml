@@ -30,9 +30,11 @@ services:
       dockerfile: Dockerfile
     container_name: locator-frontend
     ports:
-      - "80:8081"
+      - "8081:80"
     depends_on:
       - backend
+    networks:
+      - locator-net
     restart: unless-stopped
 
   db:
