@@ -33,8 +33,6 @@ services:
       - "3000:80"
     depends_on:
       - backend
-    networks:
-      - locator-net
     restart: unless-stopped
 
   db:
