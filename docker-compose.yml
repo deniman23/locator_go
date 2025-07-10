@@ -13,15 +13,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_USER=locator_user
-      - DB_NAME=locator_db
-      - DB_PASSWORD=1Y8OEqzBLg
-      - DB_SSLMODE=disable
-      - DEFAULT_ADMIN_NAME=admin
-      - DEFAULT_ADMIN_API_KEY=rg42if20fh2s
-      - BASE_URL=http://localhost:8080
+      - DATABASE_URL=postgres://locator_user:1Y8OEqzBLg@db:5432/locator_db?sslmode=disable
     depends_on:
       - db
     networks:
