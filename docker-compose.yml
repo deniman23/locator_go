@@ -15,9 +15,9 @@ services:
     environment:
       - DB_HOST=db
       - DB_PORT=5432
-      - DB_USER=admin
+      - DB_USER=locator_user
       - DB_NAME=locator_db
-      - DB_PASSWORD=admin
+      - DB_PASSWORD=1Y8OEqzBLg
       - DB_SSLMODE=disable
       - DEFAULT_ADMIN_NAME=admin
       - DEFAULT_ADMIN_API_KEY=rg42if20fh2s
@@ -54,20 +54,13 @@ services:
           memory: 1G
     image: postgres:13-alpine
     container_name: locator-db
-    user: "999:999"
-    security_opt:
-      - no-new-privileges:true
-      - seccomp:./seccomp-profile.json
-    cap_drop:
-      - ALL
     environment:
       - POSTGRES_USER=locator_user
       - POSTGRES_PASSWORD=1Y8OEqzBLg
       - POSTGRES_DB=locator_db
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
-      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
       - db_data:/var/lib/postgresql/data
     restart: unless-stopped
 

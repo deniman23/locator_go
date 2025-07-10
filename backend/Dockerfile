@@ -1,42 +1,39 @@
-# Stage 1: Builder stage
+# Stage 1: сборка вашего Go-бинаря и goose
 FROM golang:1.24-alpine AS builder
 WORKDIR /app
 
-# Копируем файлы модулей
+# модули
 COPY go.mod go.sum ./
-
-# Исправляем версию в go.mod: убираем патч-версию (например, "go 1.24.3" → "go 1.24")
-RUN sed -i 's/go 1\.24\.3/go 1.24/' go.mod
-
-# Загружаем зависимости
 RUN go mod download
 
-# Копируем весь исходный код
+# исходники
 COPY . .
 
-# Устанавливаем утилиту Goose (для управления миграциями)
+# утилита миграций
 RUN go install github.com/pressly/goose/v3/cmd/goose@latest
 
-# Собираем приложение (бинарник)
-# Если ваш основной файл main.go находится в корне проекта, используем ".", а не ./cmd/locator
+# собираем основное приложение
 RUN go build -o locator .
 
-# Stage 2: Финальный образ
-FROM alpine:latest
-RUN apk add --no-cache ca-certificates bash
 
-# Создаем папку для хранения QR‑кодов
-RUN mkdir -p /static/qrcode
 
-# Копируем бинарник приложения из builder
-COPY --from=builder /app/locator /locator
-# Копируем бинарник goose
-COPY --from=builder /go/bin/goose /usr/local/bin/goose
-# Копируем миграционные файлы (убедитесь, что каталог "migrations" содержит ваши файлы миграций)
-COPY migrations /migrations
+# Stage 2: финальный образ
+FROM alpine:3.18
+# C-утилита su-exec вместо gosu, плюс bash и сертификаты
+RUN apk add --no-cache ca-certificates bash su-exec
 
-# Переменная окружения для подключения к БД
-ENV DATABASE_URL="postgres://admin:admin@db:5432/locator_db?sslmode=disable"
+# для wget (если нужно) и папки QR
+RUN apk add --no-cache wget \
+ && mkdir -p /static/qrcode
 
-# CMD: Сначала применяем миграции, затем запускаем приложение
-CMD ["bash", "-c", "goose -dir /migrations postgres \"$DATABASE_URL\" up && /locator"]
+# копируем бины и миграции
+COPY --from=builder /app/locator       /locator
+COPY --from=builder /go/bin/goose      /usr/local/bin/goose
+COPY migrations                        /migrations
+
+# строка подключения
+ENV DATABASE_URL="postgres://locator_user:1Y8OEqzBLg@db:5432/locator_db?sslmode=disable"
+
+# запускаем миграции, а затем приложение под postgres:postgres
+CMD ["bash", "-c", \
+     "goose -dir /migrations postgres \"$DATABASE_URL\" up && exec su-exec postgres /locator"]
