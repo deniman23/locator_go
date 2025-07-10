@@ -1,5 +1,11 @@
+version: "3.8"
 services:
   backend:
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8080/healthz || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -36,16 +42,32 @@ services:
     restart: unless-stopped
 
   db:
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U locator_user -d locator_db" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
     image: postgres:13-alpine
     container_name: locator-db
+    user: "999:999"
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:./seccomp-profile.json
+    cap_drop:
+      - ALL
     environment:
-      - POSTGRES_USER=admin
-      - POSTGRES_PASSWORD=admin
+      - POSTGRES_USER=locator_user
+      - POSTGRES_PASSWORD=1Y8OEqzBLg
       - POSTGRES_DB=locator_db
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
-      - ./backend/migrations:/docker-entrypoint-initdb.d
+      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
       - db_data:/var/lib/postgresql/data
     restart: unless-stopped
 
