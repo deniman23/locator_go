@@ -1,39 +1,52 @@
-# Stage 1: сборка вашего Go-бинаря и goose
+# Stage 1: собираем приложение и goose
 FROM golang:1.24-alpine AS builder
 WORKDIR /app
 
-# модули
+# грузим зависимости
 COPY go.mod go.sum ./
 RUN go mod download
 
-# исходники
+# копируем код и ставим goose
 COPY . .
-
-# утилита миграций
 RUN go install github.com/pressly/goose/v3/cmd/goose@latest
 
-# собираем основное приложение
+# билдим бинарник
 RUN go build -o locator .
-
-
 
 # Stage 2: финальный образ
 FROM alpine:3.18
-# C-утилита su-exec вместо gosu, плюс bash и сертификаты
-RUN apk add --no-cache ca-certificates bash su-exec
 
-# для wget (если нужно) и папки QR
-RUN apk add --no-cache wget \
- && mkdir -p /static/qrcode
+# шорткат для запуска от non-root и минимальные утилиты
+RUN apk add --no-cache \
+    ca-certificates \
+    bash \
+    su-exec \
+    postgresql-client \
+    wget \
+  && mkdir -p /static/qrcode
 
-# копируем бины и миграции
-COPY --from=builder /app/locator       /locator
-COPY --from=builder /go/bin/goose      /usr/local/bin/goose
-COPY migrations                        /migrations
+# копируем миграции, goose и приложение
+COPY --from=builder /app/locator      /locator
+COPY --from=builder /go/bin/goose     /usr/local/bin/goose
+COPY migrations                      /migrations
 
-# строка подключения
-ENV DATABASE_URL="postgres://locator_user:1Y8OEqzBLg@db:5432/locator_db?sslmode=disable"
+# передаём DB_* из docker-compose
+ENV \
+    DB_HOST=db \
+    DB_PORT=5432 \
+    DB_NAME=locator_db \
+    DB_USER=locator_user \
+    DB_PASSWORD=1Y8OEqzBLg \
+    DB_SSLMODE=disable
 
-# запускаем миграции, а затем приложение под postgres:postgres
-CMD ["bash", "-c", \
-     "goose -dir /migrations postgres \"$DATABASE_URL\" up && exec su-exec postgres /locator"]
+# запускаем миграции и приложение
+CMD ["bash", "-c", "\
+    # ждём, когда Postgres будет готов \
+    until pg_isready -h $DB_HOST -U $DB_USER -d $DB_NAME; do \
+      echo '⏳ waiting for postgres…'; sleep 2; \
+    done; \
+    # запускаем goose через DSN, собранный из DB_* \
+    goose -dir /migrations postgres \"user=$DB_USER password=$DB_PASSWORD host=$DB_HOST port=$DB_PORT dbname=$DB_NAME sslmode=$DB_SSLMODE\" up; \
+    # стартуем приложение под postgres-пользователем \
+    exec su-exec postgres /locator \
+"]

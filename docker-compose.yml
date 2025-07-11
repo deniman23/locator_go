@@ -1,26 +1,34 @@
 version: "3.8"
 services:
   backend:
-    healthcheck:
-      test: [ "CMD-SHELL", "curl -f http://localhost:8080/healthz || exit 1" ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: locator-backend
     ports:
       - "8080:8080"
-    environment:
-      - DATABASE_URL=postgres://locator_user:1Y8OEqzBLg@db:5432/locator_db?sslmode=disable
     depends_on:
       - db
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
     networks:
       default:
         aliases:
           - backend
-    restart: unless-stopped
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=locator_db
+      - DB_USER=locator_user
+      - DB_PASSWORD=1Y8OEqzBLg
+      - DB_SSLMODE=disable
+      - DEFAULT_ADMIN_NAME=admin
+      - DEFAULT_ADMIN_API_KEY=rg42if20fh2s
+      - BASE_URL=http://localhost:8080
 
   frontend:
     build:
@@ -34,26 +42,21 @@ services:
     restart: unless-stopped
 
   db:
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U locator_user -d locator_db" ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
     image: postgres:13-alpine
     container_name: locator-db
-    environment:
-      - POSTGRES_USER=locator_user
-      - POSTGRES_PASSWORD=1Y8OEqzBLg
-      - POSTGRES_DB=locator_db
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=locator_user
+      - POSTGRES_PASSWORD=1Y8OEqzBLg
+      - POSTGRES_DB=locator_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U locator_user -d locator_db"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   rabbitmq:
@@ -61,7 +64,7 @@ services:
     container_name: locator-rabbitmq
     ports:
       - "5672:5672"
-      - "15672:15672" # для веб-интерфейса
+      - "15672:15672"
     restart: unless-stopped
 
 volumes:
