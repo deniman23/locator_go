@@ -85,7 +85,6 @@ const MapComponent: React.FC = () => {
         userApi.getAll(apiKey)
             .then(users => {
                 setAllUsers(users);
-                // по умолчанию — все включены
                 setSelectedUserIds(users.map(u => u.id));
             })
             .catch(err => console.error('Не удалось загрузить пользователей:', err));
