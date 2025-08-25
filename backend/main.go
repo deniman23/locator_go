@@ -12,7 +12,6 @@ func main() {
 	dbLogger := config.InitDBQueryLogger("logs/db.log")
 
 	// Инициализируем приложение и передаём логгер для работы с БД.
-	// Функция bootstrap.InitializeApp должна быть обновлена для приема параметра dbLogger.
 	app, err := bootstrap.InitializeApp(dbLogger)
 	if err != nil {
 		log.Fatalf("Ошибка инициализации приложения: %v", err)
