@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Переходим в корневую директорию с проектом, где находится docker-compose.yml
-cd /locator_go
+cd /root/locator_go
 
 # Обновляем репозиторий с новыми изменениями
 git pull origin main
