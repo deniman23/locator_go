@@ -154,7 +154,7 @@ const MapComponent: React.FC = () => {
                 >Выбрать всех</button>
                 <button
                     onClick={() => setSelectedUserIds([])}
-                    title="Снять все"
+                    title="Снять всё"
                 >Снять все</button>
                 <ul>
                     {allUsers.map(u => (
