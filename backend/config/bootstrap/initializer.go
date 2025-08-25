@@ -49,12 +49,12 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 
 	// Объявляем очередь для обработчика событий локаций.
 	queue, err := rmqClient.Channel.QueueDeclare(
-		"location_events", // имя очереди
-		true,              // долговечная очередь
-		false,             // не удалять, если не используется
-		false,             // не эксклюзивная
-		false,             // без ожидания
-		nil,               // аргументы
+		"location_events",
+		true,  // долговечная очередь
+		false, // не удалять, если не используется
+		false, // не эксклюзивная
+		false, // без ожидания
+		nil,   // аргументы
 	)
 	if err != nil {
 		log.Printf("Ошибка объявления очереди: %v", err)
