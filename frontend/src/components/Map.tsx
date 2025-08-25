@@ -90,7 +90,6 @@ const MapComponent: React.FC = () => {
             .catch(err => console.error('Не удалось загрузить пользователей:', err));
     }, [apiKey]);
 
-    // Загрузка чекпоинтов и локаций
     useEffect(() => {
         if (!apiKey) {
             setError('Ошибка авторизации: отсутствует API ключ');
