@@ -1,4 +1,4 @@
-version: "3.8"
+
 services:
   backend:
     build:
@@ -9,8 +9,10 @@ services:
       - "8080:8080"
     depends_on:
       - db
+    volumes:
+      - qr_codes:/app/static/qrcode
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/healthz || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/healthz || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -69,3 +71,4 @@ services:
 
 volumes:
   db_data:
+  qr_codes:  # Добавляем volume для QR-кодов

@@ -1,249 +1,255 @@
 import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Circle, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
+import {
+    MapContainer,
+    TileLayer,
+    Circle,
+    CircleMarker,
+    Popup,
+    useMap,
+    useMapEvents
+} from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import type {Checkpoint, Location} from '../types/models';
-import { checkpointApi, locationApi } from '../services/api';
 import L from 'leaflet';
+import type { Checkpoint, Location, User } from '../types/models';
+import { checkpointApi, locationApi, userApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-
-// Исправление иконки маркера в Leaflet
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
-// Исправляем проблему с маркерами в Leaflet
+// Настройка дефолтной иконки Leaflet
 const DefaultIcon = L.icon({
     iconUrl: icon,
     shadowUrl: iconShadow,
     iconSize: [25, 41],
-    iconAnchor: [12, 41]
+    iconAnchor: [12, 41],
 });
-
 L.Marker.prototype.options.icon = DefaultIcon;
 
-// Компонент для сохранения позиции карты
+// Генерация цвета по user_id
+const getUserColor = (userId: number): string => {
+    const hue = (userId * 137.508) % 360;
+    return `hsl(${hue}, 70%, 50%)`;
+};
+
+// Сохраняем позицию карты
 const MapPositionSaver = () => {
     const map = useMapEvents({
         moveend: () => {
-            // Сохраняем центр карты и уровень зума в localStorage
             const center = map.getCenter();
             const zoom = map.getZoom();
-            localStorage.setItem('mapPosition', JSON.stringify({
-                lat: center.lat,
-                lng: center.lng,
-                zoom: zoom
-            }));
-            console.log('Позиция карты сохранена:', center, zoom);
-        }
+            localStorage.setItem(
+                'mapPosition',
+                JSON.stringify({ lat: center.lat, lng: center.lng, zoom })
+            );
+        },
     });
-
     return null;
 };
 
-// Компонент для автоматического обновления вида карты
+// Авто-подгонка под границы
 const MapUpdater = ({
                         checkpoints,
                         locations,
-                        shouldFitBounds
+                        shouldFitBounds,
                     }: {
-    checkpoints: Checkpoint[],
-    locations: Location[],
-    shouldFitBounds: boolean
+    checkpoints: Checkpoint[];
+    locations: Location[];
+    shouldFitBounds: boolean;
 }) => {
     const map = useMap();
-
     useEffect(() => {
         if (!shouldFitBounds) return;
-
-        if (checkpoints.length === 0 && locations.length === 0) return;
-
-        // Создаем границы для всех точек
-        const bounds = L.latLngBounds([]);
-
-        // Добавляем чекпоинты в границы
-        checkpoints.forEach(cp => {
-            bounds.extend([cp.latitude, cp.longitude]);
-        });
-
-        // Добавляем локации в границы
-        locations.forEach(loc => {
-            bounds.extend([loc.latitude, loc.longitude]);
-        });
-
-        if (!bounds.isValid()) return;
-
-        // Устанавливаем вид карты с отступами
-        map.fitBounds(bounds, {
-            padding: [50, 50],
-            maxZoom: 16
-        });
-
-        console.log('Карта отцентрирована по точкам');
+        const pts = [...checkpoints, ...locations];
+        if (!pts.length) return;
+        const bounds = L.latLngBounds(pts.map(p => [p.latitude, p.longitude] as [number, number]));
+        if (bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        }
     }, [map, checkpoints, locations, shouldFitBounds]);
-
     return null;
 };
 
 const MapComponent: React.FC = () => {
+    const { apiKey, user } = useAuth();
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [userLocations, setUserLocations] = useState<Location[]>([]);
+    const [allUsers, setAllUsers] = useState<User[]>([]);
+    const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
     const [loading, setLoading] = useState(true);
     const [shouldFitBounds, setShouldFitBounds] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Получаем API ключ из контекста авторизации
-    const { apiKey, user } = useAuth();
-
-    // Получаем сохраненную позицию из localStorage или используем значения по умолчанию
-    const getSavedPosition = () => {
-        const savedPosition = localStorage.getItem('mapPosition');
-        if (savedPosition) {
-            try {
-                return JSON.parse(savedPosition);
-            } catch (e) {
-                console.error('Ошибка при чтении сохраненной позиции:', e);
-            }
-        }
-        return { lat: 55.75, lng: 37.61, zoom: 10 }; // Москва по умолчанию
-    };
-
-    const initialPosition = getSavedPosition();
-
+    // Загрузка всех пользователей для фильтра
     useEffect(() => {
-        const fetchData = async () => {
-            if (!apiKey) {
-                setError('Ошибка авторизации: отсутствует API ключ');
-                setLoading(false);
-                return;
-            }
+        if (!apiKey) return;
+        userApi.getAll(apiKey)
+            .then(users => {
+                setAllUsers(users);
+                // по умолчанию — все включены
+                setSelectedUserIds(users.map(u => u.id));
+            })
+            .catch(err => console.error('Не удалось загрузить пользователей:', err));
+    }, [apiKey]);
 
+    // Загрузка чекпоинтов и локаций
+    useEffect(() => {
+        if (!apiKey) {
+            setError('Ошибка авторизации: отсутствует API ключ');
+            setLoading(false);
+            return;
+        }
+        const fetchData = async () => {
             try {
                 setLoading(true);
                 setError(null);
-                console.log('Загрузка данных...');
 
-                // Получаем все чекпоинты с использованием API ключа
-                const checkpointsResponse = await checkpointApi.getAll(apiKey);
-                console.log('Чекпоинты:', checkpointsResponse.data);
-                setCheckpoints(checkpointsResponse.data);
+                const cpRes = await checkpointApi.getAll(apiKey);
+                setCheckpoints(cpRes.data);
 
-                // Получаем все локации с использованием API ключа
-                const locationsResponse = await locationApi.getAll(apiKey);
-                console.log('Локации:', locationsResponse.data);
-                setUserLocations(locationsResponse.data);
+                const locRes = await locationApi.getAll(apiKey);
+                setUserLocations(locRes.data);
 
-                // Если в localStorage нет сохраненной позиции и есть данные,
-                // то устанавливаем флаг для подгонки карты под точки
-                if (!localStorage.getItem('mapPosition') &&
-                    (checkpointsResponse.data.length > 0 || locationsResponse.data.length > 0)) {
+                if (!localStorage.getItem('mapPosition') && (cpRes.data.length || locRes.data.length)) {
                     setShouldFitBounds(true);
                 }
-            } catch (error) {
-                console.error('Ошибка при загрузке данных:', error);
-                setError(error instanceof Error ? error.message : 'Ошибка при загрузке данных');
+            } catch (e: any) {
+                setError(e.message || 'Ошибка при загрузке данных');
             } finally {
                 setLoading(false);
             }
         };
-
         fetchData();
-
-        // Устанавливаем интервал для обновления данных каждые 10 секунд
         const interval = setInterval(fetchData, 10000);
-
         return () => clearInterval(interval);
-    }, [apiKey]); // Добавляем apiKey в массив зависимостей
+    }, [apiKey]);
 
-    if (loading && userLocations.length === 0 && checkpoints.length === 0) {
+    // Получаем сохранённую позицию или дефолт
+    const getSavedPosition = () => {
+        const saved = localStorage.getItem('mapPosition');
+        if (saved) {
+            try { return JSON.parse(saved); }
+            catch {}
+        }
+        return { lat: 55.75, lng: 37.61, zoom: 10 };
+    };
+    const initialPosition = getSavedPosition();
+
+    // Отфильтрованные локации по чекбоксам
+    const visibleLocations = userLocations.filter(loc =>
+        selectedUserIds.includes(loc.user_id)
+    );
+
+    if (loading && !checkpoints.length && !userLocations.length) {
         return <div className="loading-message">Загрузка карты...</div>;
     }
 
     return (
-        <div className="map-container">
-            {error && (
-                <div className="error-message map-error">
-                    {error}
-                </div>
-            )}
+        <div className="map-with-filters">
+            {/* Панель фильтров */}
+            <aside className="user-filters">
+                <h4>Фильтр по пользователям</h4>
+                <button
+                    onClick={() => setSelectedUserIds(allUsers.map(u => u.id))}
+                    title="Выбрать всех"
+                >Выбрать всех</button>
+                <button
+                    onClick={() => setSelectedUserIds([])}
+                    title="Снять все"
+                >Снять все</button>
+                <ul>
+                    {allUsers.map(u => (
+                        <li key={u.id}>
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    checked={selectedUserIds.includes(u.id)}
+                                    onChange={e => {
+                                        if (e.target.checked) {
+                                            setSelectedUserIds([...selectedUserIds, u.id]);
+                                        } else {
+                                            setSelectedUserIds(selectedUserIds.filter(id => id !== u.id));
+                                        }
+                                    }}
+                                />
+                                <span style={{ color: getUserColor(u.id) }}>{u.name}</span>
+                            </label>
+                        </li>
+                    ))}
+                </ul>
+            </aside>
 
-            <MapContainer
-                center={[initialPosition.lat, initialPosition.lng]}
-                zoom={initialPosition.zoom}
-                style={{ height: '500px', width: '100%' }}
-                scrollWheelZoom={true}
-            >
-                <MapPositionSaver />
+            {/* Карта */}
+            <div className="map-container">
+                {error && <div className="error-message map-error">{error}</div>}
 
-                <MapUpdater
-                    checkpoints={checkpoints}
-                    locations={userLocations}
-                    shouldFitBounds={shouldFitBounds}
-                />
+                <MapContainer
+                    center={[initialPosition.lat, initialPosition.lng]}
+                    zoom={initialPosition.zoom}
+                    style={{ height: '600px', width: '100%' }}
+                    scrollWheelZoom
+                >
+                    <MapPositionSaver />
+                    <MapUpdater
+                        checkpoints={checkpoints}
+                        locations={visibleLocations}
+                        shouldFitBounds={shouldFitBounds}
+                    />
 
-                <TileLayer
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    attribution="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a>"
-                />
+                    <TileLayer
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        attribution="&copy; OpenStreetMap"
+                    />
 
-                {/* Отображаем чекпоинты как круги с более заметными стилями */}
-                {checkpoints.map(checkpoint => (
-                    <Circle
-                        key={`checkpoint-${checkpoint.id}`}
-                        center={[checkpoint.latitude, checkpoint.longitude]}
-                        radius={checkpoint.radius}
-                        pathOptions={{
-                            color: 'blue',
-                            fillColor: 'blue',
-                            fillOpacity: 0.4,
-                            weight: 3
-                        }}
-                    >
-                        <Popup>
-                            <div>
-                                <strong>{checkpoint.name}</strong><br />
-                                Радиус: {checkpoint.radius} м<br />
-                                ID: {checkpoint.id}
-                            </div>
-                        </Popup>
-                    </Circle>
-                ))}
+                    {/* Чекпоинты (синие) */}
+                    {checkpoints.map(cp => (
+                        <Circle
+                            key={cp.id}
+                            center={[cp.latitude, cp.longitude]}
+                            radius={cp.radius}
+                            pathOptions={{ color: 'blue', fillColor: 'blue', fillOpacity: 0.4, weight: 3 }}
+                        >
+                            <Popup>
+                                <strong>{cp.name}</strong><br />
+                                Радиус: {cp.radius} м<br />
+                                ID: {cp.id}
+                            </Popup>
+                        </Circle>
+                    ))}
 
-                {/* Маркеры для локаций пользователей */}
-                {userLocations.map(location => (
-                    <Marker
-                        key={`location-${location.id}`}
-                        position={[location.latitude, location.longitude]}
-                    >
-                        <Popup>
-                            <div>
-                                <strong>Пользователь ID: {location.user_id}</strong><br />
-                                Обновлено: {new Date(location.updated_at).toLocaleString()}<br />
-                                Координаты: {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
-                            </div>
-                        </Popup>
-                    </Marker>
-                ))}
-            </MapContainer>
+                    {/* Локации пользователей (только отфильтрованные) */}
+                    {visibleLocations.map(loc => {
+                        const color = getUserColor(loc.user_id);
+                        return (
+                            <CircleMarker
+                                key={loc.id}
+                                center={[loc.latitude, loc.longitude]}
+                                radius={8}
+                                pathOptions={{ color, fillColor: color, fillOpacity: 0.8 }}
+                            >
+                                <Popup>
+                                    <strong>Пользователь ID: {loc.user_id}</strong><br />
+                                    Обновлено: {new Date(loc.updated_at).toLocaleString()}<br />
+                                    Координаты: {loc.latitude.toFixed(6)}, {loc.longitude.toFixed(6)}
+                                </Popup>
+                            </CircleMarker>
+                        );
+                    })}
+                </MapContainer>
 
-            <div className="map-info">
-                <p>
-                    Пользователь: <strong>{user?.name}</strong> |
-                    Чекпоинты: {checkpoints.length} |
-                    Локации: {userLocations.length}
-                </p>
-                {checkpoints.length === 0 && userLocations.length === 0 && (
-                    <p className="warning">Нет данных для отображения. Добавьте чекпоинты или локации.</p>
-                )}
-                <div className="map-controls">
+                <div className="map-info">
+                    <p>
+                        Пользователь: <strong>{user?.name}</strong> |
+                        Чекпоинты: {checkpoints.length} |
+                        Отображено локаций: {visibleLocations.length}/{userLocations.length}
+                    </p>
                     <button
                         onClick={() => {
                             localStorage.removeItem('mapPosition');
                             setShouldFitBounds(true);
-                            alert('Положение карты сброшено. Карта будет отцентрирована по всем точкам после обновления данных.');
+                            alert('Положение карты сброшено.');
                         }}
                         className="reset-button"
-                    >
-                        Сбросить положение карты
-                    </button>
+                    >Сбросить положение</button>
                 </div>
             </div>
         </div>

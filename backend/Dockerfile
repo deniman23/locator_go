@@ -22,11 +22,17 @@ RUN apk add --no-cache \
     bash \
     su-exec \
     postgresql-client \
-    wget \
-  && mkdir -p /static/qrcode
+    wget
+
+# создаем рабочую директорию
+WORKDIR /app
+
+# создаем директории для статики
+RUN mkdir -p /app/static/qrcode && \
+    chmod -R 755 /app/static
 
 # копируем миграции, goose и приложение
-COPY --from=builder /app/locator      /locator
+COPY --from=builder /app/locator      /app/locator
 COPY --from=builder /go/bin/goose     /usr/local/bin/goose
 COPY migrations                      /migrations
 
@@ -47,6 +53,8 @@ CMD ["bash", "-c", "\
     done; \
     # запускаем goose через DSN, собранный из DB_* \
     goose -dir /migrations postgres \"user=$DB_USER password=$DB_PASSWORD host=$DB_HOST port=$DB_PORT dbname=$DB_NAME sslmode=$DB_SSLMODE\" up; \
-    # стартуем приложение под postgres-пользователем \
-    exec su-exec postgres /locator \
+    # создаем директорию для QR-кодов если её нет \
+    mkdir -p /app/static/qrcode && chmod 755 /app/static/qrcode; \
+    # стартуем приложение \
+    exec /app/locator \
 "]
