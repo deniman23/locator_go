@@ -7,6 +7,6 @@ cd /root/locator_go
 git pull origin main
 
 # Пересобираем все контейнеры (в том числе и frontend, и backend) и запускаем их в фоне
-docker-compose up --build -d --force-recreate
+docker-compose up --build -d
 
 echo "Деплой завершён!"
