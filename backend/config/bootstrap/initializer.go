@@ -18,8 +18,8 @@ import (
 
 // App содержит зависимости приложения.
 type App struct {
-	Router    *gin.Engine // основная маршрутизация приложения
-	DB        interface{} // подключение к БД (например, *gorm.DB)
+	Router    *gin.Engine
+	DB        interface{}
 	RMQClient *messaging.RabbitMQClient
 }
 
