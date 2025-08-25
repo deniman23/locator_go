@@ -19,6 +19,6 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
           script: |
-            cd /locator_go
+            cd /root/locator_go
             git pull origin main
             ./deploy.sh
