@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import type { Visit, Checkpoint } from '../types/models';
-import { visitApi, checkpointApi } from '../services/api';
+import type { Visit, Checkpoint, User } from '../types/models';
+import { visitApi, checkpointApi, userApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 // Функция для форматирования длительности из секунд в читаемый формат
@@ -67,6 +67,8 @@ const UserVisits: React.FC = () => {
 
     // Состояние для сопоставления ID чекпоинта и его названия
     const [checkpointMap, setCheckpointMap] = useState<Record<number, string>>({});
+    // Состояние для сопоставления ID пользователя и его имени
+    const [userMap, setUserMap] = useState<Record<number, string>>({});
 
     // Получаем API ключ из контекста авторизации
     const { apiKey } = useAuth();
@@ -84,6 +86,23 @@ const UserVisits: React.FC = () => {
                 })
                 .catch(err => {
                     console.error("Ошибка загрузки чекпоинтов:", err);
+                });
+        }
+    }, [apiKey]);
+
+    // Загружаем пользователей и формируем словарь (ID -> имя)
+    useEffect(() => {
+        if (apiKey) {
+            userApi.getAll(apiKey)
+                .then((users: User[]) => {
+                    const map: Record<number, string> = {};
+                    users.forEach((user: User) => {
+                        map[user.id] = user.name;
+                    });
+                    setUserMap(map);
+                })
+                .catch(err => {
+                    console.error("Ошибка загрузки пользователей:", err);
                 });
         }
     }, [apiKey]);
@@ -226,8 +245,7 @@ const UserVisits: React.FC = () => {
                         {visits.map(visit => (
                             <tr key={visit.id}>
                                 <td>{visit.id}</td>
-                                <td>{visit.user_id}</td>
-                                {/* Используем сопоставление для получения названия чекпоинта */}
+                                <td>{userMap[visit.user_id] || visit.user_id}</td>
                                 <td>{checkpointMap[visit.checkpoint_id] || visit.checkpoint_id}</td>
                                 <td>{new Date(visit.start_at).toLocaleString()}</td>
                                 <td>{visit.end_at ? new Date(visit.end_at).toLocaleString() : 'Активен'}</td>
