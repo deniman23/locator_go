@@ -110,10 +110,11 @@ const MapComponent: React.FC = () => {
 
             // Если заданы фильтры по времени, добавляем параметры запроса
             let locRes;
+            // Если заданы фильтры по времени, добавляем параметры запроса.
             if (fromTime && toTime) {
-                // Для удобства можно добавить "Z", если сервер ожидает время в UTC
-                const fromParam = encodeURIComponent(fromTime + 'Z');
-                const toParam = encodeURIComponent(toTime + 'Z');
+                // Добавляем ':00' для секунд. Например, "2025-09-19T09:00" превращается в "2025-09-19T09:00:00Z"
+                const fromParam = encodeURIComponent(`${fromTime}:00Z`);
+                const toParam = encodeURIComponent(`${toTime}:00Z`);
                 locRes = await axios.get<Location[]>(`/api/location?from=${fromParam}&to=${toParam}`, {
                     headers: {
                         'X-API-Key': apiKey,
