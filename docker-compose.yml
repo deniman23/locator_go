@@ -47,7 +47,7 @@ services:
     image: postgres:13-alpine
     container_name: locator-db
     ports:
-      - "127.0.0.1:5433:5432"
+      - "0.0.0.0:5433:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     environment:
