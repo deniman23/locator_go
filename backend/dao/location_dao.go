@@ -2,6 +2,7 @@ package dao
 
 import (
 	"locator/models"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -39,6 +40,16 @@ func (dao *LocationDAO) Update(loc *models.Location) error {
 func (dao *LocationDAO) GetAll() ([]models.Location, error) {
 	var locations []models.Location
 	if err := dao.DB.Find(&locations).Error; err != nil {
+		return nil, err
+	}
+	return locations, nil
+}
+
+// GetLocationsBetween возвращает все записи о местоположениях, созданные между from и to.
+func (dao *LocationDAO) GetLocationsBetween(from, to time.Time) ([]models.Location, error) {
+	var locations []models.Location
+	err := dao.DB.Where("created_at BETWEEN ? AND ?", from, to).Find(&locations).Error
+	if err != nil {
 		return nil, err
 	}
 	return locations, nil

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import axios from 'axios';
 import {
     MapContainer,
     TileLayer,
@@ -78,8 +79,10 @@ const MapComponent: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [shouldFitBounds, setShouldFitBounds] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [fromTime, setFromTime] = useState<string>('');
+    const [toTime, setToTime] = useState<string>('');
 
-    // Загрузка всех пользователей для фильтра
+    // Загрузка всех пользователей для фильтра по пользователям
     useEffect(() => {
         if (!apiKey) return;
         userApi.getAll(apiKey)
@@ -90,49 +93,70 @@ const MapComponent: React.FC = () => {
             .catch(err => console.error('Не удалось загрузить пользователей:', err));
     }, [apiKey]);
 
-    useEffect(() => {
+    // Функция загрузки данных с сервера:
+    const fetchData = async () => {
         if (!apiKey) {
             setError('Ошибка авторизации: отсутствует API ключ');
             setLoading(false);
             return;
         }
-        const fetchData = async () => {
-            try {
-                setLoading(true);
-                setError(null);
+        try {
+            setLoading(true);
+            setError(null);
 
-                const cpRes = await checkpointApi.getAll(apiKey);
-                setCheckpoints(cpRes.data);
+            // Загрузка чекпоинтов без изменений
+            const cpRes = await checkpointApi.getAll(apiKey);
+            setCheckpoints(cpRes.data);
 
-                const locRes = await locationApi.getAll(apiKey);
-                setUserLocations(locRes.data);
-
-                if (!localStorage.getItem('mapPosition') && (cpRes.data.length || locRes.data.length)) {
-                    setShouldFitBounds(true);
-                }
-            } catch (e: any) {
-                setError(e.message || 'Ошибка при загрузке данных');
-            } finally {
-                setLoading(false);
+            // Если заданы фильтры по времени, добавляем параметры запроса
+            let locRes;
+            if (fromTime && toTime) {
+                // Для удобства можно добавить "Z", если сервер ожидает время в UTC
+                const fromParam = encodeURIComponent(fromTime + 'Z');
+                const toParam = encodeURIComponent(toTime + 'Z');
+                locRes = await axios.get<Location[]>(`/api/location?from=${fromParam}&to=${toParam}`, {
+                    headers: {
+                        'X-API-Key': apiKey,
+                        'Content-Type': 'application/json'
+                    }
+                });
+            } else {
+                locRes = await locationApi.getAll(apiKey);
             }
-        };
+            setUserLocations(locRes.data);
+
+            if (!localStorage.getItem('mapPosition') && (cpRes.data.length || locRes.data.length)) {
+                setShouldFitBounds(true);
+            }
+        } catch (e: any) {
+            setError(e.message || 'Ошибка при загрузке данных');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Первоначальная загрузка данных и автообновление каждые 10 сек.
+    useEffect(() => {
         fetchData();
         const interval = setInterval(fetchData, 10000);
         return () => clearInterval(interval);
     }, [apiKey]);
 
-    // Получаем сохранённую позицию или дефолт
+    // Получаем сохранённую позицию или дефолтные координаты
     const getSavedPosition = () => {
         const saved = localStorage.getItem('mapPosition');
         if (saved) {
-            try { return JSON.parse(saved); }
-            catch {}
+            try {
+                return JSON.parse(saved);
+            } catch {
+                return { lat: 55.75, lng: 37.61, zoom: 10 };
+            }
         }
         return { lat: 55.75, lng: 37.61, zoom: 10 };
     };
     const initialPosition = getSavedPosition();
 
-    // Отфильтрованные локации по чекбоксам
+    // Отфильтрованные локации по чекбоксам пользователей
     const visibleLocations = userLocations.filter(loc =>
         selectedUserIds.includes(loc.user_id)
     );
@@ -149,11 +173,15 @@ const MapComponent: React.FC = () => {
                 <button
                     onClick={() => setSelectedUserIds(allUsers.map(u => u.id))}
                     title="Выбрать всех"
-                >Выбрать всех</button>
+                >
+                    Выбрать всех
+                </button>
                 <button
                     onClick={() => setSelectedUserIds([])}
                     title="Снять всё"
-                >Снять все</button>
+                >
+                    Снять все
+                </button>
                 <ul>
                     {allUsers.map(u => (
                         <li key={u.id}>
@@ -174,6 +202,44 @@ const MapComponent: React.FC = () => {
                         </li>
                     ))}
                 </ul>
+
+                {/* Фильтр по времени */}
+                <div className="time-filter" style={{ marginTop: '1rem' }}>
+                    <h4>Фильтр по времени</h4>
+                    <div>
+                        <label>
+                            От:&nbsp;
+                            <input
+                                type="datetime-local"
+                                value={fromTime}
+                                onChange={e => setFromTime(e.target.value)}
+                            />
+                        </label>
+                    </div>
+                    <div>
+                        <label>
+                            До:&nbsp;
+                            <input
+                                type="datetime-local"
+                                value={toTime}
+                                onChange={e => setToTime(e.target.value)}
+                            />
+                        </label>
+                    </div>
+                    <div style={{ marginTop: '0.5rem' }}>
+                        <button onClick={fetchData}>Применить временной фильтр</button>
+                        <button
+                            style={{ marginLeft: '0.5rem' }}
+                            onClick={() => {
+                                setFromTime('');
+                                setToTime('');
+                                fetchData();
+                            }}
+                        >
+                            Сбросить временной фильтр
+                        </button>
+                    </div>
+                </div>
             </aside>
 
             {/* Карта */}
@@ -198,7 +264,7 @@ const MapComponent: React.FC = () => {
                         attribution="&copy; OpenStreetMap"
                     />
 
-                    {/* Чекпоинты (синие) */}
+                    {/* Отображение чекпоинтов */}
                     {checkpoints.map(cp => (
                         <Circle
                             key={cp.id}
@@ -207,14 +273,16 @@ const MapComponent: React.FC = () => {
                             pathOptions={{ color: 'blue', fillColor: 'blue', fillOpacity: 0.4, weight: 3 }}
                         >
                             <Popup>
-                                <strong>{cp.name}</strong><br />
-                                Радиус: {cp.radius} м<br />
+                                <strong>{cp.name}</strong>
+                                <br />
+                                Радиус: {cp.radius} м
+                                <br />
                                 ID: {cp.id}
                             </Popup>
                         </Circle>
                     ))}
 
-                    {/* Локации пользователей (только отфильтрованные) */}
+                    {/* Отображение локаций пользователей (отфильтрованных по выбранным пользователям) */}
                     {visibleLocations.map(loc => {
                         const color = getUserColor(loc.user_id);
                         return (
@@ -225,8 +293,10 @@ const MapComponent: React.FC = () => {
                                 pathOptions={{ color, fillColor: color, fillOpacity: 0.8 }}
                             >
                                 <Popup>
-                                    <strong>Пользователь ID: {loc.user_id}</strong><br />
-                                    Обновлено: {new Date(loc.updated_at).toLocaleString()}<br />
+                                    <strong>Пользователь ID: {loc.user_id}</strong>
+                                    <br />
+                                    Обновлено: {new Date(loc.updated_at).toLocaleString()}
+                                    <br />
                                     Координаты: {loc.latitude.toFixed(6)}, {loc.longitude.toFixed(6)}
                                 </Popup>
                             </CircleMarker>
@@ -247,7 +317,9 @@ const MapComponent: React.FC = () => {
                             alert('Положение карты сброшено.');
                         }}
                         className="reset-button"
-                    >Сбросить положение</button>
+                    >
+                        Сбросить положение
+                    </button>
                 </div>
             </div>
         </div>

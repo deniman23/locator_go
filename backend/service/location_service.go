@@ -1,9 +1,11 @@
 package service
 
 import (
+	"fmt"
 	"locator/dao"
 	"locator/models"
 	"log"
+	"time"
 )
 
 // LocationService отвечает за бизнес-логику, связанную с операциями над местоположениями.
@@ -74,4 +76,21 @@ func (svc *LocationService) GetLocations() ([]models.Location, error) {
 	}
 	log.Printf("[GetLocations] Найдено %d записей местоположений", len(locations))
 	return locations, nil
+}
+
+// GetLocationsBetween возвращает все записи, созданные между заданными временными метками.
+// Параметры from и to должны быть в формате RFC3339, например: "2025-09-19T10:00:00Z".
+func (svc *LocationService) GetLocationsBetween(fromStr, toStr string) ([]models.Location, error) {
+	from, err := time.Parse(time.RFC3339, fromStr)
+	if err != nil {
+		return nil, fmt.Errorf("неверный формат параметра 'from': %v", err)
+	}
+	to, err := time.Parse(time.RFC3339, toStr)
+	if err != nil {
+		return nil, fmt.Errorf("неверный формат параметра 'to': %v", err)
+	}
+	if from.After(to) {
+		return nil, fmt.Errorf("начало интервала не может быть позже окончания")
+	}
+	return svc.DAO.GetLocationsBetween(from, to)
 }

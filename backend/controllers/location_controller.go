@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"fmt"
 	"locator/config/messaging"
 	"locator/models"
 	"locator/service"
@@ -82,11 +83,27 @@ func (lc *LocationController) PostLocation(ctx *gin.Context) {
 }
 
 // GetLocations обрабатывает GET-запрос для получения всех локаций.
+// Если переданы параметры from и to (например, ?from=2025-09-19T10:00:00Z&to=2025-09-19T11:00:00Z),
+// будут возвращены локации за указанный интервал.
 func (lc *LocationController) GetLocations(ctx *gin.Context) {
-	locations, err := lc.Service.GetLocations()
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка получения записей"})
-		return
+	from := ctx.Query("from")
+	to := ctx.Query("to")
+	var locations []models.Location
+	var err error
+
+	if from != "" && to != "" {
+		locations, err = lc.Service.GetLocationsBetween(from, to)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Ошибка фильтрации по интервалу: %v", err)})
+			return
+		}
+	} else {
+		// Если не переданы параметры интервала, возвращаем все записи или можно оставить другую логику фильтрации.
+		locations, err = lc.Service.GetLocations()
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка получения записей"})
+			return
+		}
 	}
 	ctx.JSON(http.StatusOK, locations)
 }
