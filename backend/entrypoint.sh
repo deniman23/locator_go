@@ -7,4 +7,4 @@ until psql "$DATABASE_URL" -c '\q'; do
 done
 
 goose -dir /migrations postgres "$DATABASE_URL" up
-exec su-exec postgres /locator
+exec su-exec postgres /app/locator
