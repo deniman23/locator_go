@@ -8,7 +8,7 @@ type Checkpoint struct {
 	// ID — уникальный идентификатор записи (числовой, автоинкремент).
 	ID int `gorm:"primaryKey;autoIncrement" json:"id"`
 
-	// Name — название чекпоинта, например "Школа".
+	// Name — название чекпоинта, например "Школа"
 	Name string `gorm:"not null" json:"name"`
 
 	// Latitude — широта точки.
