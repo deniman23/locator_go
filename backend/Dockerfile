@@ -45,7 +45,16 @@ ENV \
     DB_PASSWORD=1Y8OEqzBLg \
     DB_SSLMODE=disable
 
-# копируем entrypoint.sh из корня проекта
-COPY ./entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
+# запускаем миграции и приложение
+CMD ["bash", "-c", "\
+    # ждём, когда Postgres будет готов \
+    until pg_isready -h $DB_HOST -U $DB_USER -d $DB_NAME; do \
+      echo '⏳ waiting for postgres…'; sleep 2; \
+    done; \
+    # запускаем goose через DSN, собранный из DB_* \
+    goose -dir /migrations postgres \"user=$DB_USER password=$DB_PASSWORD host=$DB_HOST port=$DB_PORT dbname=$DB_NAME sslmode=$DB_SSLMODE\" up; \
+    # создаем директорию для QR-кодов если её нет \
+    mkdir -p /app/static/qrcode && chmod 755 /app/static/qrcode; \
+    # стартуем приложение \
+    exec /app/locator \
+"]
