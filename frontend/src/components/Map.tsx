@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import {
     MapContainer,
@@ -81,8 +81,23 @@ const MapComponent: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [fromTime, setFromTime] = useState<string>('');
     const [toTime, setToTime] = useState<string>('');
+    const [sidebarOpen, setSidebarOpen] = useState(true);
 
-    // Загрузка всех пользователей для фильтра по пользователям
+    // Используем useRef для хранения актуальных значений
+    const filtersRef = useRef({ fromTime: '', toTime: '' });
+    const apiKeyRef = useRef<string | null>(apiKey);
+    const fetchDataRef = useRef<(() => Promise<void>) | null>(null);
+
+    // Обновляем refs при изменении
+    useEffect(() => {
+        filtersRef.current = { fromTime, toTime };
+    }, [fromTime, toTime]);
+
+    useEffect(() => {
+        apiKeyRef.current = apiKey;
+    }, [apiKey]);
+
+    // Загрузка всех пользователей
     useEffect(() => {
         if (!apiKey) return;
         userApi.getAll(apiKey)
@@ -93,55 +108,89 @@ const MapComponent: React.FC = () => {
             .catch(err => console.error('Не удалось загрузить пользователей:', err));
     }, [apiKey]);
 
-    // Функция загрузки данных с сервера:
+    // Функция загрузки данных
     const fetchData = async () => {
-        if (!apiKey) {
+        const currentApiKey = apiKeyRef.current;
+        const currentFilters = filtersRef.current;
+
+        if (!currentApiKey) {
             setError('Ошибка авторизации: отсутствует API ключ');
             setLoading(false);
             return;
         }
+
         try {
             setLoading(true);
             setError(null);
 
-            // Загрузка чекпоинтов без изменений
-            const cpRes = await checkpointApi.getAll(apiKey);
+            // Загрузка чекпоинтов
+            const cpRes = await checkpointApi.getAll(currentApiKey);
             setCheckpoints(cpRes.data);
 
-            // Если заданы фильтры по времени, добавляем параметры запроса
+            // Загрузка локаций с учетом фильтров
             let locRes;
-            if (fromTime && toTime) {
-                const fromParam = encodeURIComponent(`${fromTime}:00Z`);
-                const toParam = encodeURIComponent(`${toTime}:00Z`);
-                locRes = await axios.get<Location[]>(`/api/location/?from=${fromParam}&to=${toParam}`, { // добавлен завершающий слэш
-                    headers: {
-                        'X-API-Key': apiKey,
-                        'Content-Type': 'application/json'
-                    }
-                });
-            } else {
-                locRes = await locationApi.getAll(apiKey);
-            }
-            setUserLocations(locRes.data);
+            if (currentFilters.fromTime && currentFilters.toTime) {
+                const fromDate = new Date(currentFilters.fromTime);
+                const toDate = new Date(currentFilters.toTime);
 
-            if (!localStorage.getItem('mapPosition') && (cpRes.data.length || locRes.data.length)) {
+                if (fromDate >= toDate) {
+                    setError('Дата начала должна быть раньше даты окончания');
+                    setLoading(false);
+                    return;
+                }
+
+                const fromParam = fromDate.toISOString();
+                const toParam = toDate.toISOString();
+
+                locRes = await axios.get<Location[]>(
+                    `/api/location/?from=${encodeURIComponent(fromParam)}&to=${encodeURIComponent(toParam)}`,
+                    {
+                        headers: {
+                            'X-API-Key': currentApiKey,
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+            } else {
+                locRes = await locationApi.getAll(currentApiKey);
+            }
+
+            setUserLocations(locRes.data || []);
+
+            // Первоначальная подгонка карты
+            if (!localStorage.getItem('mapPosition') && !localStorage.getItem('mapLoaded') &&
+                (cpRes.data.length || (locRes.data && locRes.data.length))) {
                 setShouldFitBounds(true);
+                localStorage.setItem('mapLoaded', 'true');
             }
         } catch (e: any) {
-            setError(e.message || 'Ошибка при загрузке данных');
+            console.error('[Map] Ошибка загрузки:', e);
+            setError(e.response?.data?.error || e.message || 'Ошибка при загрузке данных');
         } finally {
             setLoading(false);
         }
     };
 
-    // Первоначальная загрузка данных и автообновление каждые 10 сек.
+    // Сохраняем функцию в ref
+    fetchDataRef.current = fetchData;
+
+    // Первоначальная загрузка
     useEffect(() => {
         fetchData();
-        const interval = setInterval(fetchData, 10000);
-        return () => clearInterval(interval);
-    }, [apiKey]);
+    }, []);
 
-    // Получаем сохранённую позицию или дефолтные координаты
+    // Автообновление каждые 10 секунд
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (fetchDataRef.current) {
+                fetchDataRef.current();
+            }
+        }, 10000);
+
+        return () => clearInterval(interval);
+    }, []);
+
+    // Получаем сохранённую позицию
     const getSavedPosition = () => {
         const saved = localStorage.getItem('mapPosition');
         if (saved) {
@@ -155,100 +204,182 @@ const MapComponent: React.FC = () => {
     };
     const initialPosition = getSavedPosition();
 
-    // Отфильтрованные локации по чекбоксам пользователей
+    // Отфильтрованные локации
     const visibleLocations = userLocations.filter(loc =>
         selectedUserIds.includes(loc.user_id)
     );
+
+    // Обработчики фильтров
+    const handleResetTimeFilter = () => {
+        setFromTime('');
+        setToTime('');
+        setTimeout(() => fetchData(), 100);
+    };
+
+    const setLastHour = () => {
+        const now = new Date();
+        const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+        setFromTime(hourAgo.toISOString().slice(0, 16));
+        setToTime(now.toISOString().slice(0, 16));
+        setTimeout(() => fetchData(), 100);
+    };
+
+    const setLast24Hours = () => {
+        const now = new Date();
+        const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        setFromTime(dayAgo.toISOString().slice(0, 16));
+        setToTime(now.toISOString().slice(0, 16));
+        setTimeout(() => fetchData(), 100);
+    };
 
     if (loading && !checkpoints.length && !userLocations.length) {
         return <div className="loading-message">Загрузка карты...</div>;
     }
 
     return (
-        <div className="map-with-filters">
-            {/* Панель фильтров */}
-            <aside className="user-filters">
-                <h4>Фильтр по пользователям</h4>
-                <button
-                    onClick={() => setSelectedUserIds(allUsers.map(u => u.id))}
-                    title="Выбрать всех"
-                >
-                    Выбрать всех
-                </button>
-                <button
-                    onClick={() => setSelectedUserIds([])}
-                    title="Снять всё"
-                >
-                    Снять все
-                </button>
-                <ul>
-                    {allUsers.map(u => (
-                        <li key={u.id}>
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    checked={selectedUserIds.includes(u.id)}
-                                    onChange={e => {
-                                        if (e.target.checked) {
-                                            setSelectedUserIds([...selectedUserIds, u.id]);
-                                        } else {
-                                            setSelectedUserIds(selectedUserIds.filter(id => id !== u.id));
-                                        }
-                                    }}
-                                />
-                                <span style={{ color: getUserColor(u.id) }}>{u.name}</span>
-                            </label>
-                        </li>
-                    ))}
-                </ul>
+        <div className="map-dashboard">
+            {/* Кнопка toggle для сайдбара */}
+            <button
+                className={`sidebar-toggle ${!sidebarOpen ? 'sidebar-closed' : ''}`}
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                title={sidebarOpen ? "Скрыть панель" : "Показать панель"}
+            >
+                {sidebarOpen ? '◀' : '▶'}
+            </button>
 
-                {/* Фильтр по времени */}
-                <div className="time-filter" style={{ marginTop: '1rem' }}>
-                    <h4>Фильтр по времени</h4>
-                    <div>
-                        <label>
-                            От:&nbsp;
-                            <input
-                                type="datetime-local"
-                                value={fromTime}
-                                onChange={e => setFromTime(e.target.value)}
-                            />
-                        </label>
+            {/* Сайдбар с фильтрами */}
+            <aside className={`map-sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
+                <div className="sidebar-content">
+                    {/* Секция пользователей */}
+                    <div className="filter-section">
+                        <div className="section-header">
+                            <h3>👥 Пользователи</h3>
+                            <div className="section-controls">
+                                <button
+                                    className="btn-mini"
+                                    onClick={() => setSelectedUserIds(allUsers.map(u => u.id))}
+                                    title="Выбрать всех"
+                                >
+                                    ✓ Все
+                                </button>
+                                <button
+                                    className="btn-mini"
+                                    onClick={() => setSelectedUserIds([])}
+                                    title="Снять выбор"
+                                >
+                                    ✗ Снять
+                                </button>
+                            </div>
+                        </div>
+                        <div className="user-list">
+                            {allUsers.map(u => (
+                                <label key={u.id} className="user-item">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedUserIds.includes(u.id)}
+                                        onChange={e => {
+                                            if (e.target.checked) {
+                                                setSelectedUserIds([...selectedUserIds, u.id]);
+                                            } else {
+                                                setSelectedUserIds(selectedUserIds.filter(id => id !== u.id));
+                                            }
+                                        }}
+                                    />
+                                    <span
+                                        className="user-name"
+                                        style={{
+                                            color: getUserColor(u.id),
+                                            fontWeight: selectedUserIds.includes(u.id) ? 'bold' : 'normal'
+                                        }}
+                                    >
+                                        {u.name}
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
                     </div>
-                    <div>
-                        <label>
-                            До:&nbsp;
-                            <input
-                                type="datetime-local"
-                                value={toTime}
-                                onChange={e => setToTime(e.target.value)}
-                            />
-                        </label>
-                    </div>
-                    <div style={{ marginTop: '0.5rem' }}>
-                        <button onClick={fetchData}>Применить временной фильтр</button>
-                        <button
-                            style={{ marginLeft: '0.5rem' }}
-                            onClick={() => {
-                                setFromTime('');
-                                setToTime('');
-                                fetchData();
-                            }}
-                        >
-                            Сбросить временной фильтр
-                        </button>
+
+                    {/* Секция времени */}
+                    <div className="filter-section">
+                        <div className="section-header">
+                            <h3>🕐 Период времени</h3>
+                        </div>
+
+                        <div className="quick-filters">
+                            <button
+                                className="btn-quick"
+                                onClick={setLastHour}
+                            >
+                                Последний час
+                            </button>
+                            <button
+                                className="btn-quick"
+                                onClick={setLast24Hours}
+                            >
+                                Последние 24ч
+                            </button>
+                        </div>
+                        
+                        <div className="time-inputs">
+                            <div className="input-group">
+                                <label>Начало периода:</label>
+                                <input
+                                    type="datetime-local"
+                                    value={fromTime}
+                                    onChange={e => setFromTime(e.target.value)}
+                                    max={toTime || undefined}
+                                />
+                            </div>
+                            <div className="input-group">
+                                <label>Конец периода:</label>
+                                <input
+                                    type="datetime-local"
+                                    value={toTime}
+                                    onChange={e => setToTime(e.target.value)}
+                                    min={fromTime || undefined}
+                                />
+                            </div>
+                        </div>
+
+                        {fromTime && toTime && (
+                            <div className="filter-status">
+                                {fromTime < toTime ? (
+                                    <span className="status-active">
+                                        ✓ Фильтр активен
+                                    </span>
+                                ) : (
+                                    <span className="status-error">
+                                        ⚠ Некорректный период
+                                    </span>
+                                )}
+                            </div>
+                        )}
+
+                        {fromTime && toTime && (
+                            <button
+                                className="btn-reset"
+                                onClick={handleResetTimeFilter}
+                            >
+                                Сбросить фильтр
+                            </button>
+                        )}
                     </div>
                 </div>
             </aside>
 
-            {/* Карта */}
-            <div className="map-container">
-                {error && <div className="error-message map-error">{error}</div>}
+            {/* Основная область с картой */}
+            <div className={`map-main ${sidebarOpen ? 'with-sidebar' : 'full-width'}`}>
+                {error && (
+                    <div className="map-error-banner">
+                        <span>⚠ {error}</span>
+                        <button onClick={() => setError(null)}>✕</button>
+                    </div>
+                )}
 
                 <MapContainer
                     center={[initialPosition.lat, initialPosition.lng]}
                     zoom={initialPosition.zoom}
-                    style={{ height: '600px', width: '100%' }}
+                    style={{ height: '100%', width: '100%' }}
                     scrollWheelZoom
                 >
                     <MapPositionSaver />
@@ -263,61 +394,86 @@ const MapComponent: React.FC = () => {
                         attribution="&copy; OpenStreetMap"
                     />
 
-                    {/* Отображение чекпоинтов */}
                     {checkpoints.map(cp => (
                         <Circle
                             key={cp.id}
                             center={[cp.latitude, cp.longitude]}
                             radius={cp.radius}
-                            pathOptions={{ color: 'blue', fillColor: 'blue', fillOpacity: 0.4, weight: 3 }}
+                            pathOptions={{
+                                color: '#3b82f6',
+                                fillColor: '#3b82f6',
+                                fillOpacity: 0.2,
+                                weight: 2
+                            }}
                         >
                             <Popup>
-                                <strong>{cp.name}</strong>
-                                <br />
-                                Радиус: {cp.radius} м
-                                <br />
-                                ID: {cp.id}
+                                <div className="popup-content">
+                                    <strong>{cp.name}</strong>
+                                    <div>Радиус: {cp.radius} м</div>
+                                    <div className="popup-id">ID: {cp.id}</div>
+                                </div>
                             </Popup>
                         </Circle>
                     ))}
 
-                    {/* Отображение локаций пользователей (отфильтрованных по выбранным пользователям) */}
                     {visibleLocations.map(loc => {
                         const color = getUserColor(loc.user_id);
+                        const userName = allUsers.find(u => u.id === loc.user_id)?.name || `ID: ${loc.user_id}`;
                         return (
                             <CircleMarker
                                 key={loc.id}
                                 center={[loc.latitude, loc.longitude]}
                                 radius={8}
-                                pathOptions={{ color, fillColor: color, fillOpacity: 0.8 }}
+                                pathOptions={{
+                                    color: color,
+                                    fillColor: color,
+                                    fillOpacity: 0.8,
+                                    weight: 2
+                                }}
                             >
                                 <Popup>
-                                    <strong>Пользователь ID: {loc.user_id}</strong>
-                                    <br />
-                                    Обновлено: {new Date(loc.updated_at).toLocaleString()}
-                                    <br />
-                                    Координаты: {loc.latitude.toFixed(6)}, {loc.longitude.toFixed(6)}
+                                    <div className="popup-content">
+                                        <strong>{userName}</strong>
+                                        <div>{new Date(loc.updated_at).toLocaleString()}</div>
+                                        <div className="popup-coords">
+                                            {loc.latitude.toFixed(6)}, {loc.longitude.toFixed(6)}
+                                        </div>
+                                    </div>
                                 </Popup>
                             </CircleMarker>
                         );
                     })}
                 </MapContainer>
 
-                <div className="map-info">
-                    <p>
-                        Пользователь: <strong>{user?.name}</strong> |
-                        Чекпоинты: {checkpoints.length} |
-                        Отображено локаций: {visibleLocations.length}/{userLocations.length}
-                    </p>
+                {/* Информационная панель внизу */}
+                <div className="map-status-bar">
+                    <div className="status-info">
+                        <span className="status-item">
+                            <strong>{user?.name}</strong>
+                            {user?.is_admin && <span className="admin-badge">Админ</span>}
+                        </span>
+                        <span className="status-item">
+                            📍 Чекпоинты: <strong>{checkpoints.length}</strong>
+                        </span>
+                        <span className="status-item">
+                            👤 Локации: <strong>{visibleLocations.length}/{userLocations.length}</strong>
+                        </span>
+                        {fromTime && toTime && (
+                            <span className="status-item">
+                                📅 {new Date(fromTime).toLocaleDateString()} - {new Date(toTime).toLocaleDateString()}
+                            </span>
+                        )}
+                    </div>
                     <button
+                        className="btn-reset-map"
                         onClick={() => {
                             localStorage.removeItem('mapPosition');
+                            localStorage.removeItem('mapLoaded');
                             setShouldFitBounds(true);
-                            alert('Положение карты сброшено.');
                         }}
-                        className="reset-button"
+                        title="Сбросить положение карты"
                     >
-                        Сбросить положение
+                        ⟲ Сброс карты
                     </button>
                 </div>
             </div>

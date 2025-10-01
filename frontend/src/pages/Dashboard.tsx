@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import MapComponent from '../components/Map';
 import type { Visit } from '../types/models';
 import { visitApi } from '../services/api';
-import { useAuth } from '../context/AuthContext'; // Добавляем импорт
+import { useAuth } from '../context/AuthContext';
 
 const Dashboard: React.FC = () => {
     const [activeVisits, setActiveVisits] = useState<Visit[]>([]);
