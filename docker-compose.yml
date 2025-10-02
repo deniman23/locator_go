@@ -8,6 +8,7 @@ services:
       - "8080:8080"
     depends_on:
       - db
+      - rabbitmq
     volumes:
       - qr_codes:/app/static/qrcode
       - ./backend/logs:/app/logs
@@ -22,16 +23,22 @@ services:
         aliases:
           - backend
     environment:
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_NAME=locator_db
-      - DB_USER=locator_user
-      - DB_PASSWORD=1Y8OEqzBLg
-      - DB_SSLMODE=disable
-      - DEFAULT_ADMIN_NAME=admin
-      - DEFAULT_ADMIN_API_KEY=rg42if20fh2s
-      - BASE_URL=http://localhost:8080
-      - DATABASE_URL=postgres://locator_user:1Y8OEqzBLg@db:5432/locator_db?sslmode=disable
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_SSLMODE=${DB_SSLMODE}
+
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASS=${RABBITMQ_PASS}
+
+      - DEFAULT_ADMIN_NAME=${DEFAULT_ADMIN_NAME}
+      - DEFAULT_ADMIN_API_KEY=${DEFAULT_ADMIN_API_KEY}
+
+      - BASE_URL=${BASE_URL}
 
   frontend:
     build:
@@ -69,7 +76,11 @@ services:
       - "5672:5672"
       - "15672:15672"
     restart: unless-stopped
+    networks:
+      default:
+        aliases:
+          - locator-rabbitmq
 
 volumes:
   db_data:
-  qr_codes:  # Добавляем volume для QR-кодов
+  qr_codes:

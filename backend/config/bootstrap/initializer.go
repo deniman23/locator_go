@@ -1,19 +1,22 @@
 package bootstrap
 
 import (
-	"locator/models"
-	"locator/seed"
+	"fmt"
 	"log"
+	"os"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm/logger"
 	"locator/config"
 	"locator/config/messaging"
 	"locator/controllers"
 	"locator/dao"
+	"locator/models"
 	"locator/router"
+	"locator/seed"
 	"locator/service"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm/logger"
 )
 
 // App содержит зависимости приложения.
@@ -24,37 +27,68 @@ type App struct {
 }
 
 // InitializeApp собирает все зависимости приложения и возвращает готовый инстанс App.
-// Теперь функция принимает параметр dbLogger, который используется для инициализации БД с нужным уровнем логирования SQL-запросов.
+// Функция принимает параметр dbLogger для настройки уровня логирования SQL-запросов.
 func InitializeApp(dbLogger logger.Interface) (*App, error) {
-	// 1. Инициализация подключения к БД с использованием переданного логгера для SQL-запросов.
-	// Для этого предполагается, что функция config.InitDB обновлена и принимает параметр logger.
+	// 1. Инициализация подключения к БД с указанным логгером.
 	dbConn := config.InitDB(dbLogger)
 
-	err := dbConn.AutoMigrate(&models.User{}, &models.Location{}, &models.Checkpoint{}, &models.Visit{})
-	if err != nil {
-		return nil, err
+	if err := dbConn.AutoMigrate(
+		&models.User{},
+		&models.Location{},
+		&models.Checkpoint{},
+		&models.Visit{},
+	); err != nil {
+		return nil, fmt.Errorf("auto migrate failed: %w", err)
 	}
 
 	seed.DefaultAdmin(dbConn)
 
-	// 2. Инициализация подключения к RabbitMQ.
-	rmqURL := "amqp://guest:guest@locator-rabbitmq:5672/"
-	rmqClient, err := messaging.NewRabbitMQClient(rmqURL)
-	if err != nil {
-		return nil, err
+	// 2. Настройка параметров подключения к RabbitMQ из окружения.
+	user := os.Getenv("RABBITMQ_USER")
+	if user == "" {
+		user = "guest"
+	}
+	pass := os.Getenv("RABBITMQ_PASS")
+	if pass == "" {
+		pass = "guest"
+	}
+	host := os.Getenv("RABBITMQ_HOST")
+	if host == "" {
+		host = "rabbitmq"
+	}
+	port := os.Getenv("RABBITMQ_PORT")
+	if port == "" {
+		port = "5672"
 	}
 
-	// Создаем Publisher с нужными параметрами: пустая строка для обмена и "location_events" в качестве ключа маршрутизации.
+	// 3. Ждём, когда RabbitMQ станет доступен, и создаём клиент.
+	var rmqClient *messaging.RabbitMQClient
+	var err error
+	for i := 0; i < 15; i++ {
+		rmqURL := fmt.Sprintf("amqp://%s:%s@%s:%s/", user, pass, host, port)
+		rmqClient, err = messaging.NewRabbitMQClient(rmqURL)
+		if err == nil {
+			log.Printf("Подключились к RabbitMQ по %s", rmqURL)
+			break
+		}
+		log.Printf("⏳ waiting for RabbitMQ at %s:%s … (%v)", host, port, err)
+		time.Sleep(2 * time.Second)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("rabbitmq connect failed: %w", err)
+	}
+
+	// Создаём Publisher с exchange="" и routing key="location_events"
 	publisher := messaging.NewPublisher(rmqClient, "", "location_events")
 
-	// Объявляем очередь для обработчика событий локаций.
+	// Объявляем очередь "location_events"
 	queue, err := rmqClient.Channel.QueueDeclare(
 		"location_events",
-		true,  // долговечная очередь
-		false, // не удалять, если не используется
-		false, // не эксклюзивная
-		false, // без ожидания
-		nil,   // аргументы
+		true,  // durable
+		false, // delete when unused
+		false, // exclusive
+		false, // no-wait
+		nil,   // args
 	)
 	if err != nil {
 		log.Printf("Ошибка объявления очереди: %v", err)
@@ -62,44 +96,53 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 		log.Printf("Очередь '%s' объявлена успешно", queue.Name)
 	}
 
-	// 3. Инициализация слоев DAO, сервисов и контроллеров.
+	// 4. Инициализация DAO, сервисов и контроллеров
 
-	// Для Location:
+	// Location
 	locationDAO := dao.NewLocationDAO(dbConn)
 	locationService := service.NewLocationService(locationDAO)
 	locationController := controllers.NewLocationController(locationService, publisher)
 
-	// Для Checkpoint и Visit:
+	// Checkpoint и Visit
 	checkpointDAO := dao.NewCheckpointDAO(dbConn)
 	checkpointService := service.NewCheckpointService(checkpointDAO)
 	visitDAO := dao.NewVisitDAO(dbConn)
 	visitService := service.NewVisitService(visitDAO)
-	checkpointController := controllers.NewCheckpointController(checkpointService, locationService, visitService, publisher)
+	checkpointController := controllers.NewCheckpointController(
+		checkpointService, locationService, visitService, publisher,
+	)
 	visitController := controllers.NewVisitController(visitService)
 
-	// Инициализация EventController с Publisher.
+	// EventController
 	eventController := controllers.NewEventController(publisher)
 
+	// User
 	userDAO := dao.NewUserDAO(dbConn)
 	userService := service.NewUserService(userDAO)
 	userController := controllers.NewUserController(userService)
 
-	// 4. Инициализация роутера с добавлением всех контроллеров.
-	routerEngine := router.InitRoutes(locationController, checkpointController, visitController, eventController, userController, userService)
+	// 5. Инициализация роутера
+	routerEngine := router.InitRoutes(
+		locationController,
+		checkpointController,
+		visitController,
+		eventController,
+		userController,
+		userService,
+	)
 
-	// Запуск потребителя сообщений для обработки событий из очереди "location_events".
+	// 6. Запуск background-потребителя сообщений
 	visitEventProcessor := service.NewVisitEventProcessor(checkpointService, visitService)
 	consumer := messaging.NewConsumer(rmqClient, queue.Name)
 	go func() {
 		if err := consumer.Consume(func(message []byte) error {
-			// Обработка сообщения (например, создание или завершение визита)
 			return visitEventProcessor.ProcessEvent(message)
 		}); err != nil {
 			log.Printf("Ошибка при потреблении сообщений: %v", err)
 		}
 	}()
 
-	// Пример публикации демо-события (опционально).
+	// 7. (Опционально) публикация демо-события
 	go func() {
 		demoEvent := map[string]interface{}{
 			"user_id":       1,
@@ -108,7 +151,6 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 			"longitude":     37.6156,
 			"occurred_at":   time.Now(),
 		}
-
 		if err := publisher.PublishJSON(demoEvent); err != nil {
 			log.Printf("Ошибка публикации демо-события в RabbitMQ: %v", err)
 		} else {
@@ -121,6 +163,5 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 		DB:        dbConn,
 		RMQClient: rmqClient,
 	}
-
 	return app, nil
 }
