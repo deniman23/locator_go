@@ -23,22 +23,22 @@ services:
         aliases:
           - backend
     environment:
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_NAME=${DB_NAME}
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DB_SSLMODE=${DB_SSLMODE}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: locator_db
+      DB_USER: locator_user
+      DB_PASSWORD: 1Y8OEqzBLg
+      DB_SSLMODE: disable
 
-      - RABBITMQ_HOST=${RABBITMQ_HOST}
-      - RABBITMQ_PORT=${RABBITMQ_PORT}
-      - RABBITMQ_USER=${RABBITMQ_USER}
-      - RABBITMQ_PASS=${RABBITMQ_PASS}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASS: guest
 
-      - DEFAULT_ADMIN_NAME=${DEFAULT_ADMIN_NAME}
-      - DEFAULT_ADMIN_API_KEY=${DEFAULT_ADMIN_API_KEY}
+      DEFAULT_ADMIN_NAME: admin
+      DEFAULT_ADMIN_API_KEY: rg42if20fh2s
 
-      - BASE_URL=${BASE_URL}
+      BASE_URL: http://localhost:8080
 
   frontend:
     build:
