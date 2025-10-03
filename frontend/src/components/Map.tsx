@@ -138,9 +138,8 @@ const MapComponent: React.FC = () => {
                     setLoading(false);
                     return;
                 }
-
-                const fromParam = fromDate.toISOString();
-                const toParam = toDate.toISOString();
+                const fromParam = fromDate.toISOString().replace(/Z$/, '+03:00');
+                const toParam   = toDate.toISOString().replace(/Z$/, '+03:00');
 
                 locRes = await axios.get<Location[]>(
                     `/api/location/?from=${encodeURIComponent(fromParam)}&to=${encodeURIComponent(toParam)}`,
