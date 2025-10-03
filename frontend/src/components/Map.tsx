@@ -138,17 +138,16 @@ const MapComponent: React.FC = () => {
                     setLoading(false);
                     return;
                 }
-                const fromParam = fromDate.toISOString().replace(/Z$/, '+03:00');
-                const toParam   = toDate.toISOString().replace(/Z$/, '+03:00');
+                // хелпер, обрезающий миллисекунды и подставляющий +03:00
+                const toIsoMinsk = (d: Date): string =>
+                    d.toISOString().slice(0, 19) + '+03:00';
+
+                const fromParam = toIsoMinsk(fromDate);
+                const toParam   = toIsoMinsk(toDate);
 
                 locRes = await axios.get<Location[]>(
-                    `/api/location/?from=${encodeURIComponent(fromParam)}&to=${encodeURIComponent(toParam)}`,
-                    {
-                        headers: {
-                            'X-API-Key': currentApiKey,
-                            'Content-Type': 'application/json'
-                        }
-                    }
+                    `/api/location?from=${encodeURIComponent(fromParam)}&to=${encodeURIComponent(toParam)}`,
+                    { headers: { 'X-API-Key': currentApiKey } }
                 );
             } else {
                 locRes = await locationApi.getAll(currentApiKey);
