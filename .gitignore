@@ -1,0 +1,5 @@
+.env
+backend/.env
+backend/logs/
+backend/static/qrcode/
+/.cursor

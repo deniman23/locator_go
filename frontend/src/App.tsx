@@ -32,7 +32,7 @@ const Navigation: React.FC = () => {
         if (isAuthenticated) {
             refreshUser();
         }
-    }, [isAuthenticated]); // Зависимость от isAuthenticated, чтобы не обновлять при каждом рендере
+    }, [isAuthenticated, refreshUser]); // refreshUser стабилен через useCallback в AuthContext
 
     if (!isAuthenticated) return null;
 

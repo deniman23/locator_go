@@ -2,8 +2,10 @@
 export interface User {
     id: number;
     name: string;
+    is_admin: boolean;
     created_at: string;
     updated_at: string;
+    qr_code: string;
 }
 
 export interface Checkpoint {
@@ -40,15 +42,6 @@ export interface LocationEvent {
     latitude: number;
     longitude: number;
     occurred_at: string;
-}
-export interface User {
-    id: number;
-    name: string;
-    is_admin: boolean;
-    created_at: string;
-    updated_at: string;
-    qr_code: string;
-
 }
 
 export interface AuthState {

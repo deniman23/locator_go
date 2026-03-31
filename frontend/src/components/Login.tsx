@@ -14,7 +14,7 @@ const Login: React.FC = () => {
         setIsLoading(true);
         try {
             await login(apiKey);
-        } catch (err) {
+        } catch {
             // Ошибка уже обрабатывается в AuthContext
         } finally {
             setIsLoading(false);

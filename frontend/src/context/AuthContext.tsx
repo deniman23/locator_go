@@ -1,5 +1,5 @@
 // context/AuthContext.tsx
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type {AuthState} from '../types/models';
 import { userApi } from '../services/api';
 
@@ -29,7 +29,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     // Функция для обновления информации о текущем пользователе
-    const refreshUser = async () => {
+    const logout = useCallback(() => {
+        sessionStorage.removeItem('apiKey');
+        setState({
+            isAuthenticated: false,
+            user: null,
+            apiKey: null,
+            loading: false,
+            error: null
+        });
+    }, []);
+
+    const refreshUser = useCallback(async () => {
         if (!state.apiKey) return;
 
         try {
@@ -60,29 +71,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 error: 'Ошибка получения данных пользователя'
             }));
         }
-    };
+    }, [logout, state.apiKey]);
 
-    // Проверяем наличие сохраненного API ключа при загрузке
-    useEffect(() => {
-        const savedApiKey = sessionStorage.getItem('apiKey');
-        if (savedApiKey) {
-            login(savedApiKey).catch(() => {
-                // Если ключ не валидный, очищаем sessionStorage
-                sessionStorage.removeItem('apiKey');
-                setState({
-                    isAuthenticated: false,
-                    user: null,
-                    apiKey: null,
-                    loading: false,
-                    error: 'Сессия истекла. Пожалуйста, войдите снова.'
-                });
-            });
-        } else {
-            setState(prev => ({ ...prev, loading: false }));
-        }
-    }, []);
-
-    const login = async (apiKey: string) => {
+    const login = useCallback(async (apiKey: string) => {
         try {
             setState(prev => ({ ...prev, loading: true, error: null }));
 
@@ -123,21 +114,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             });
             throw error;
         }
-    };
+    }, []);
 
-    const logout = () => {
-        sessionStorage.removeItem('apiKey');
-        setState({
-            isAuthenticated: false,
-            user: null,
-            apiKey: null,
-            loading: false,
-            error: null
-        });
-    };
+    // Проверяем наличие сохраненного API ключа при загрузке
+    useEffect(() => {
+        const savedApiKey = sessionStorage.getItem('apiKey');
+        if (savedApiKey) {
+            login(savedApiKey).catch(() => {
+                // Если ключ не валидный, очищаем sessionStorage
+                sessionStorage.removeItem('apiKey');
+                setState({
+                    isAuthenticated: false,
+                    user: null,
+                    apiKey: null,
+                    loading: false,
+                    error: 'Сессия истекла. Пожалуйста, войдите снова.'
+                });
+            });
+        } else {
+            setState(prev => ({ ...prev, loading: false }));
+        }
+    }, [login]);
+
+    const contextValue = useMemo(
+        () => ({ ...state, login, logout, refreshUser }),
+        [state, login, logout, refreshUser]
+    );
 
     return (
-        <AuthContext.Provider value={{ ...state, login, logout, refreshUser }}>
+        <AuthContext.Provider value={contextValue}>
             {children}
         </AuthContext.Provider>
     );

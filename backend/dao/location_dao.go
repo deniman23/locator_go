@@ -20,7 +20,7 @@ func NewLocationDAO(db *gorm.DB) *LocationDAO {
 // GetByUserID возвращает запись о местоположении по идентификатору пользователя.
 func (dao *LocationDAO) GetByUserID(userID int) (*models.Location, error) {
 	var loc models.Location
-	if err := dao.DB.Where("user_id = ?", userID).First(&loc).Error; err != nil {
+	if err := dao.DB.Where("user_id = ?", userID).Order("created_at DESC").First(&loc).Error; err != nil {
 		return nil, err
 	}
 	return &loc, nil

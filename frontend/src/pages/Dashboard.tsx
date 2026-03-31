@@ -10,16 +10,18 @@ const Dashboard: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
 
     // Получаем API ключ
-    const { apiKey } = useAuth();
+    const { apiKey, user } = useAuth();
 
     useEffect(() => {
         const fetchActiveVisits = async () => {
-            // Проверяем наличие API ключа
-            const localStorageKey = localStorage.getItem('apiKey');
-            const keyToUse = apiKey || localStorageKey;
-
-            if (!keyToUse) {
+            if (!apiKey) {
                 setError('Отсутствует API ключ. Пожалуйста, войдите в систему.');
+                setLoading(false);
+                return;
+            }
+
+            if (!user?.id) {
+                setError('Не удалось определить текущего пользователя.');
                 setLoading(false);
                 return;
             }
@@ -29,7 +31,7 @@ const Dashboard: React.FC = () => {
                 setError(null);
 
                 // Передаем API ключ в запрос
-                const response = await visitApi.getByUserId(1, keyToUse);
+                const response = await visitApi.getByUserId(user.id, apiKey);
 
                 // Фильтруем только активные визиты
                 const active = response.data.filter(visit => visit.end_at === null);
@@ -48,7 +50,7 @@ const Dashboard: React.FC = () => {
         const interval = setInterval(fetchActiveVisits, 30000);
 
         return () => clearInterval(interval);
-    }, [apiKey]); // Добавляем apiKey в зависимости
+    }, [apiKey, user?.id]); // Добавляем актуальный user id в зависимости
 
     return (
         <div className="dashboard">

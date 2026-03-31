@@ -24,6 +24,13 @@ export const locationApi = {
     // Получение всех локаций с опциональным API ключом
     getAll: (apiKey?: string) => api.get<Location[]>('/location/', withApiKey(apiKey)),
 
+    // Получение локаций за выбранный интервал
+    getBetween: (from: string, to: string, apiKey?: string) =>
+        api.get<Location[]>('/location/', {
+            ...withApiKey(apiKey),
+            params: { from, to }
+        }),
+
     // Получение локации по ID пользователя
     getByUserId: (userId: number, apiKey?: string) =>
         api.get<Location>(`/location/single?user_id=${userId}`, withApiKey(apiKey)),
@@ -51,7 +58,6 @@ export const checkpointApi = {
         api.get(`/checkpoint/check?user_id=${userId}&checkpoint_id=${checkpointId}`, withApiKey(apiKey))
 };
 
-// API для работы с визитами
 // API для работы с визитами
 export const visitApi = {
     // Получение визитов с возможностью фильтрации

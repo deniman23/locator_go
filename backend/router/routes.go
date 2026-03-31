@@ -18,6 +18,10 @@ func InitRoutes(
 ) *gin.Engine {
 	router := gin.Default()
 
+	router.GET("/healthz", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
 	// Доступные без авторизации статические файлы (если они нужны)
 	router.Static("/static", "./static")
 

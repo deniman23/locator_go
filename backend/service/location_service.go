@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -87,30 +88,32 @@ func (svc *LocationService) GetLocationsWithoutCache() ([]models.Location, error
 
 // GetLocationsBetween возвращает значимые локации за указанный период.
 func (svc *LocationService) GetLocationsBetween(fromStr, toStr string) ([]models.Location, error) {
-	from, err := time.Parse(time.RFC3339, fromStr)
-	if err != nil {
-		return nil, fmt.Errorf("неверный формат параметра 'from': %v", err)
+	// сначала пробуем RFC3339 (если фронт прислал с +03:00 или Z)
+	parse := func(s string) (time.Time, error) {
+		if strings.ContainsAny(s, "Z+") {
+			return time.Parse(time.RFC3339, s)
+		}
+		// иначе парсим как локальное минское время без смещения
+		return time.ParseInLocation("2006-01-02T15:04", s, svc.minskLocation)
 	}
-	to, err := time.Parse(time.RFC3339, toStr)
+
+	from, err := parse(fromStr)
 	if err != nil {
-		return nil, fmt.Errorf("неверный формат параметра 'to': %v", err)
+		return nil, fmt.Errorf("invalid from: %v", err)
+	}
+	to, err := parse(toStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid to: %v", err)
 	}
 	if from.After(to) {
 		return nil, fmt.Errorf("начало интервала не может быть позже окончания")
 	}
 
-	// Получаем локации за период.
-	allLocations, err := svc.DAO.GetLocationsBetween(from, to)
+	all, err := svc.DAO.GetLocationsBetween(from, to)
 	if err != nil {
 		return nil, err
 	}
-
-	// Фильтруем значимые локации.
-	significantLocations := svc.filterSignificantLocations(allLocations)
-	log.Printf("[GetLocationsBetween] Отфильтровано %d значимых локаций для периода %s - %s",
-		len(significantLocations), fromStr, toStr)
-
-	return significantLocations, nil
+	return svc.filterSignificantLocations(all), nil
 }
 
 // filterSignificantLocations фильтрует только значимые локации из всех.

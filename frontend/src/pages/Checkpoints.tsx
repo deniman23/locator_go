@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type {Checkpoint} from '../types/models';
 import { checkpointApi } from '../services/api';
 import CheckpointForm from '../components/Checkpoint/CheckpointForm';
@@ -14,17 +14,8 @@ const Checkpoints: React.FC = () => {
     // Получаем API ключ из контекста авторизации
     const { apiKey } = useAuth();
 
-    const fetchCheckpoints = async () => {
-        // Для отладки
-        console.log('fetchCheckpoints вызван, apiKey =', apiKey);
-
-        // Берем ключ из localStorage если он отсутствует в контексте
-        const localStorageKey = localStorage.getItem('apiKey');
-        const keyToUse = apiKey || localStorageKey;
-
-        console.log('Используем ключ:', keyToUse);
-
-        if (!keyToUse) {
+    const fetchCheckpoints = useCallback(async () => {
+        if (!apiKey) {
             setError('Отсутствует API ключ. Пожалуйста, войдите в систему.');
             setLoading(false);
             return;
@@ -34,10 +25,8 @@ const Checkpoints: React.FC = () => {
             setLoading(true);
             setError(null);
 
-            // Передаем API ключ в запрос!
-            const response = await checkpointApi.getAll(keyToUse);
-
-            console.log('Ответ API:', response);
+            // Передаем API ключ в запрос
+            const response = await checkpointApi.getAll(apiKey);
             setCheckpoints(response.data);
         } catch (error) {
             console.error('Ошибка при загрузке чекпоинтов:', error);
@@ -45,11 +34,11 @@ const Checkpoints: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [apiKey]);
 
     useEffect(() => {
         fetchCheckpoints();
-    }, [apiKey]); // Перезагружаем при изменении API ключа
+    }, [fetchCheckpoints]); // Перезагружаем при изменении API ключа
 
     const handleEdit = (checkpoint: Checkpoint) => {
         setEditingCheckpoint(checkpoint);

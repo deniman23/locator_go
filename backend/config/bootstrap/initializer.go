@@ -142,22 +142,6 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 		}
 	}()
 
-	// 7. (Опционально) публикация демо-события
-	go func() {
-		demoEvent := map[string]interface{}{
-			"user_id":       1,
-			"checkpoint_id": 1,
-			"latitude":      55.7522,
-			"longitude":     37.6156,
-			"occurred_at":   time.Now(),
-		}
-		if err := publisher.PublishJSON(demoEvent); err != nil {
-			log.Printf("Ошибка публикации демо-события в RabbitMQ: %v", err)
-		} else {
-			log.Println("Демо-событие опубликовано в RabbitMQ")
-		}
-	}()
-
 	app := &App{
 		Router:    routerEngine,
 		DB:        dbConn,

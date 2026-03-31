@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { Visit, Checkpoint, User } from '../types/models';
 import { visitApi, checkpointApi, userApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -108,7 +108,7 @@ const UserVisits: React.FC = () => {
     }, [apiKey]);
 
     // Функция для загрузки визитов с применением фильтров
-    const fetchVisits = async () => {
+    const fetchVisits = useCallback(async () => {
         if (!apiKey) {
             setError('Отсутствует API ключ. Пожалуйста, войдите в систему.');
             setLoading(false);
@@ -144,12 +144,12 @@ const UserVisits: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [apiKey, filters]);
 
     // Загружаем визиты при первом рендере
     useEffect(() => {
         fetchVisits();
-    }, [apiKey]);
+    }, [fetchVisits]);
 
     // Обработчик изменения значений фильтров
     const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef } from 'react';
-import axios from 'axios';
 import {
     MapContainer,
     TileLayer,
@@ -131,26 +130,22 @@ const MapComponent: React.FC = () => {
             let locRes;
             if (currentFilters.fromTime && currentFilters.toTime) {
                 const fromDate = new Date(currentFilters.fromTime);
-                const toDate = new Date(currentFilters.toTime);
+                const toDate   = new Date(currentFilters.toTime);
 
                 if (fromDate >= toDate) {
                     setError('Дата начала должна быть раньше даты окончания');
                     setLoading(false);
                     return;
                 }
-                // хелпер, обрезающий миллисекунды и подставляющий +03:00
-                const toIsoMinsk = (d: Date): string =>
-                    d.toISOString().slice(0, 19) + '+03:00';
 
-                const fromParam = toIsoMinsk(fromDate);
-                const toParam   = toIsoMinsk(toDate);
-
-                locRes = await axios.get<Location[]>(
-                    `/api/location?from=${encodeURIComponent(fromParam)}&to=${encodeURIComponent(toParam)}`,
-                    { headers: { 'X-API-Key': currentApiKey } }
+                // Отправляем «сырые» строки вида "YYYY-MM-DDTHH:mm"
+                locRes = await locationApi.getBetween(
+                    currentFilters.fromTime,
+                    currentFilters.toTime,
+                    currentApiKey
                 );
             } else {
-                locRes = await locationApi.getAll(currentApiKey);
+                locRes = await locationApi.getAll(currentApiKey!);
             }
 
             setUserLocations(locRes.data || []);
@@ -161,9 +156,18 @@ const MapComponent: React.FC = () => {
                 setShouldFitBounds(true);
                 localStorage.setItem('mapLoaded', 'true');
             }
-        } catch (e: any) {
+        } catch (e: unknown) {
             console.error('[Map] Ошибка загрузки:', e);
-            setError(e.response?.data?.error || e.message || 'Ошибка при загрузке данных');
+            const message =
+                typeof e === 'object' &&
+                e !== null &&
+                'response' in e &&
+                typeof (e as { response?: { data?: { error?: string } } }).response?.data?.error === 'string'
+                    ? (e as { response?: { data?: { error?: string } } }).response!.data!.error!
+                    : e instanceof Error
+                        ? e.message
+                        : 'Ошибка при загрузке данных';
+            setError(message);
         } finally {
             setLoading(false);
         }
