@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
     MapContainer,
     TileLayer,
@@ -85,6 +85,7 @@ type MarkerMode = 'all' | 'merged5m';
 
 const MapComponent: React.FC = () => {
     const { apiKey, user } = useAuth();
+    const day0 = useMemo(() => minskDayBounds(0), []);
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [userLocations, setUserLocations] = useState<Location[]>([]);
     const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -93,8 +94,13 @@ const MapComponent: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [shouldFitBounds, setShouldFitBounds] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [fromTime, setFromTime] = useState<string>('');
-    const [toTime, setToTime] = useState<string>('');
+    /** По умолчанию — календарный сегодняшний день (Europe/Minsk) */
+    const [fromTime, setFromTime] = useState(day0.from);
+    const [toTime, setToTime] = useState(day0.to);
+    /** Смещение календарного дня относительно «сегодня» в Минске (кнопки −1 / +1 день) */
+    const [minskDayOffset, setMinskDayOffset] = useState(0);
+    /** false — даты менялись вручную, подпись «Свой период» */
+    const [dayRangeFromPreset, setDayRangeFromPreset] = useState(true);
     const [sidebarOpen, setSidebarOpen] = useState(true);
 
     const [useRawLocations, setUseRawLocations] = useState(true);
@@ -104,13 +110,16 @@ const MapComponent: React.FC = () => {
     const [roadCoords, setRoadCoords] = useState<[number, number][] | null>(null);
     const [roadMatchNote, setRoadMatchNote] = useState<string | null>(null);
     const [autoRefresh, setAutoRefresh] = useState(false);
+    const [routeLoading, setRouteLoading] = useState(false);
+    /** Увеличивается по кнопке «Получить маршрут», чтобы заново запросить линию OSRM */
+    const [matchedRouteNonce, setMatchedRouteNonce] = useState(0);
 
-    const filtersRef = useRef({ fromTime: '', toTime: '' });
+    const filtersRef = useRef({ fromTime: day0.from, toTime: day0.to });
     const apiKeyRef = useRef<string | null>(apiKey);
     const useRawRef = useRef(useRawLocations);
     const fetchDataRef = useRef<(() => Promise<void>) | null>(null);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         filtersRef.current = { fromTime, toTime };
     }, [fromTime, toTime]);
 
@@ -272,7 +281,7 @@ const MapComponent: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [useRoadMatch, selectedUserIds, trackMode, fromTime, toTime, apiKey]);
+    }, [useRoadMatch, selectedUserIds, trackMode, fromTime, toTime, apiKey, matchedRouteNonce]);
 
     const getSavedPosition = () => {
         const saved = localStorage.getItem('mapPosition');
@@ -342,13 +351,85 @@ const MapComponent: React.FC = () => {
         void fetchData();
     };
 
+    /** Загрузка точек за период, показ трека и подгонка карты; при включённой привязке к дорогам — повторный запрос OSRM */
+    const handleGetRoute = async () => {
+        if (!fromTime || !toTime) {
+            setError('Укажите период (начало и конец)');
+            return;
+        }
+        if (new Date(fromTime) >= new Date(toTime)) {
+            setError('Дата начала должна быть раньше даты окончания');
+            return;
+        }
+        setRouteLoading(true);
+        setError(null);
+        try {
+            await fetchData();
+            setTrackMode(prev => (prev === 'none' ? 'polyline' : prev));
+            setShouldFitBounds(true);
+            if (useRoadMatch && selectedUserIds.length === 1) {
+                setMatchedRouteNonce(n => n + 1);
+            }
+        } finally {
+            setRouteLoading(false);
+        }
+    };
+
     const handleResetTimeFilter = () => {
-        setFromTime('');
-        setToTime('');
+        setMinskDayOffset(0);
+        setDayRangeFromPreset(true);
+        const { from, to } = minskDayBounds(0);
+        setFromTime(from);
+        setToTime(to);
         setTimeout(() => void fetchData(), 100);
     };
 
+    const loadAllTime = () => {
+        setFromTime('');
+        setToTime('');
+        setMinskDayOffset(0);
+        setDayRangeFromPreset(true);
+        setTimeout(() => void fetchData(), 100);
+    };
+
+    const goPrevCalendarDay = () => {
+        setDayRangeFromPreset(true);
+        if (!fromTime || !toTime) {
+            setMinskDayOffset(-1);
+            const b = minskDayBounds(-1);
+            setFromTime(b.from);
+            setToTime(b.to);
+            setTimeout(() => void fetchData(), 0);
+            return;
+        }
+        const next = minskDayOffset - 1;
+        setMinskDayOffset(next);
+        const b = minskDayBounds(next);
+        setFromTime(b.from);
+        setToTime(b.to);
+        setTimeout(() => void fetchData(), 0);
+    };
+
+    const goNextCalendarDay = () => {
+        setDayRangeFromPreset(true);
+        if (!fromTime || !toTime) {
+            setMinskDayOffset(1);
+            const b = minskDayBounds(1);
+            setFromTime(b.from);
+            setToTime(b.to);
+            setTimeout(() => void fetchData(), 0);
+            return;
+        }
+        const next = minskDayOffset + 1;
+        setMinskDayOffset(next);
+        const b = minskDayBounds(next);
+        setFromTime(b.from);
+        setToTime(b.to);
+        setTimeout(() => void fetchData(), 0);
+    };
+
     const setLastHour = () => {
+        setDayRangeFromPreset(false);
         const now = new Date();
         const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
         setFromTime(hourAgo.toISOString().slice(0, 16));
@@ -357,6 +438,7 @@ const MapComponent: React.FC = () => {
     };
 
     const setLast24Hours = () => {
+        setDayRangeFromPreset(false);
         const now = new Date();
         const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         setFromTime(dayAgo.toISOString().slice(0, 16));
@@ -365,6 +447,8 @@ const MapComponent: React.FC = () => {
     };
 
     const setTodayMinsk = () => {
+        setMinskDayOffset(0);
+        setDayRangeFromPreset(true);
         const { from, to } = minskDayBounds(0);
         setFromTime(from);
         setToTime(to);
@@ -372,6 +456,8 @@ const MapComponent: React.FC = () => {
     };
 
     const setYesterdayMinsk = () => {
+        setMinskDayOffset(-1);
+        setDayRangeFromPreset(true);
         const { from, to } = minskDayBounds(-1);
         setFromTime(from);
         setToTime(to);
@@ -379,6 +465,8 @@ const MapComponent: React.FC = () => {
     };
 
     const setShiftMinsk = () => {
+        setMinskDayOffset(0);
+        setDayRangeFromPreset(true);
         const { from, to } = minskShiftBounds(0);
         setFromTime(from);
         setToTime(to);
@@ -401,6 +489,177 @@ const MapComponent: React.FC = () => {
 
             <aside className={`map-sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
                 <div className="sidebar-content">
+                    <div className="filter-section">
+                        <div className="section-header">
+                            <h3>Период и маршрут</h3>
+                        </div>
+                        <p className="map-hint">
+                            При открытии карты по умолчанию загружаются точки за <strong>сегодня</strong> (календарный
+                            день Europe/Minsk). Кнопки «− день» / «+ день» сдвигают этот день. «За всё время» —
+                            без ограничения по дате.
+                        </p>
+                        <div className="map-day-nav">
+                            <button type="button" className="btn-day-nav" onClick={goPrevCalendarDay} title="Предыдущий день">
+                                − день
+                            </button>
+                            <span className="map-day-label">
+                                {!fromTime || !toTime
+                                    ? 'Все даты'
+                                    : !dayRangeFromPreset
+                                      ? 'Свой период'
+                                      : minskDayOffset === 0
+                                        ? 'Сегодня'
+                                        : minskDayOffset === -1
+                                          ? 'Вчера'
+                                          : `${minskDayOffset > 0 ? '+' : ''}${minskDayOffset} дн.`}
+                            </span>
+                            <button type="button" className="btn-day-nav" onClick={goNextCalendarDay} title="Следующий день">
+                                + день
+                            </button>
+                        </div>
+                        <div className="quick-filters map-quick-row">
+                            <button type="button" className="btn-quick" onClick={setTodayMinsk}>
+                                Сегодня
+                            </button>
+                            <button type="button" className="btn-quick" onClick={setYesterdayMinsk}>
+                                Вчера
+                            </button>
+                            <button type="button" className="btn-quick" onClick={setShiftMinsk}>
+                                Смена 8–20
+                            </button>
+                        </div>
+                        <div className="quick-filters">
+                            <button type="button" className="btn-quick" onClick={setLastHour}>
+                                Последний час
+                            </button>
+                            <button type="button" className="btn-quick" onClick={setLast24Hours}>
+                                Последние 24ч
+                            </button>
+                        </div>
+
+                        <div className="time-inputs">
+                            <div className="input-group">
+                                <label>Начало периода</label>
+                                <input
+                                    type="datetime-local"
+                                    value={fromTime}
+                                    onChange={e => {
+                                        setDayRangeFromPreset(false);
+                                        setFromTime(e.target.value);
+                                    }}
+                                    max={toTime || undefined}
+                                />
+                            </div>
+                            <div className="input-group">
+                                <label>Конец периода</label>
+                                <input
+                                    type="datetime-local"
+                                    value={toTime}
+                                    onChange={e => {
+                                        setDayRangeFromPreset(false);
+                                        setToTime(e.target.value);
+                                    }}
+                                    min={fromTime || undefined}
+                                />
+                            </div>
+                        </div>
+
+                        <button type="button" className="btn-primary-apply" onClick={applyPeriod}>
+                            Применить период
+                        </button>
+
+                        <button
+                            type="button"
+                            className="btn-get-route"
+                            disabled={routeLoading}
+                            onClick={() => void handleGetRoute()}
+                        >
+                            {routeLoading ? 'Загрузка…' : 'Получить маршрут'}
+                        </button>
+                        <p className="map-hint map-hint-tight">
+                            Подтягивает точки за выбранный период, включает линию трека и подгоняет карту. Если отмечено
+                            «По дорогам» и выбран один пользователь — дополнительно строится линия OSRM (нужен{' '}
+                            <code>ROUTING_BASE_URL</code> на сервере).
+                        </p>
+
+                        {fromTime && toTime && new Date(fromTime) < new Date(toTime) && (
+                            <div className="filter-status">
+                                <span className="status-active">Период задан</span>
+                            </div>
+                        )}
+                        {fromTime && toTime && new Date(fromTime) >= new Date(toTime) && (
+                            <div className="filter-status">
+                                <span className="status-error">Некорректный период</span>
+                            </div>
+                        )}
+
+                        <div className="map-period-actions">
+                            <button type="button" className="btn-reset" onClick={handleResetTimeFilter}>
+                                Только сегодня
+                            </button>
+                            <button type="button" className="btn-reset" onClick={loadAllTime}>
+                                За всё время
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="filter-section">
+                        <div className="section-header">
+                            <h3>Пользователи</h3>
+                            <div className="section-controls">
+                                <button
+                                    type="button"
+                                    className="btn-mini"
+                                    onClick={() => setSelectedUserIds(allUsers.map(u => u.id))}
+                                    title="Выбрать всех"
+                                >
+                                    Все
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn-mini"
+                                    onClick={() => setSelectedUserIds([])}
+                                    title="Снять выбор"
+                                >
+                                    Снять
+                                </button>
+                            </div>
+                        </div>
+                        <input
+                            type="search"
+                            className="map-user-search"
+                            placeholder="Поиск по имени…"
+                            value={userSearch}
+                            onChange={e => setUserSearch(e.target.value)}
+                        />
+                        <div className="user-list">
+                            {filteredUsersList.map(u => (
+                                <label key={u.id} className="user-item">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedUserIds.includes(u.id)}
+                                        onChange={e => {
+                                            if (e.target.checked) {
+                                                setSelectedUserIds([...selectedUserIds, u.id]);
+                                            } else {
+                                                setSelectedUserIds(selectedUserIds.filter(id => id !== u.id));
+                                            }
+                                        }}
+                                    />
+                                    <span
+                                        className="user-name"
+                                        style={{
+                                            color: getUserColor(u.id),
+                                            fontWeight: selectedUserIds.includes(u.id) ? 'bold' : 'normal',
+                                        }}
+                                    >
+                                        {u.name}
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+
                     <div className="filter-section">
                         <div className="section-header">
                             <h3>Данные и трек</h3>
@@ -487,134 +746,6 @@ const MapComponent: React.FC = () => {
                             />
                             <span>Обновлять каждые 10 с</span>
                         </label>
-                    </div>
-
-                    <div className="filter-section">
-                        <div className="section-header">
-                            <h3>Пользователи</h3>
-                            <div className="section-controls">
-                                <button
-                                    type="button"
-                                    className="btn-mini"
-                                    onClick={() => setSelectedUserIds(allUsers.map(u => u.id))}
-                                    title="Выбрать всех"
-                                >
-                                    Все
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn-mini"
-                                    onClick={() => setSelectedUserIds([])}
-                                    title="Снять выбор"
-                                >
-                                    Снять
-                                </button>
-                            </div>
-                        </div>
-                        <input
-                            type="search"
-                            className="map-user-search"
-                            placeholder="Поиск по имени…"
-                            value={userSearch}
-                            onChange={e => setUserSearch(e.target.value)}
-                        />
-                        <div className="user-list">
-                            {filteredUsersList.map(u => (
-                                <label key={u.id} className="user-item">
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedUserIds.includes(u.id)}
-                                        onChange={e => {
-                                            if (e.target.checked) {
-                                                setSelectedUserIds([...selectedUserIds, u.id]);
-                                            } else {
-                                                setSelectedUserIds(selectedUserIds.filter(id => id !== u.id));
-                                            }
-                                        }}
-                                    />
-                                    <span
-                                        className="user-name"
-                                        style={{
-                                            color: getUserColor(u.id),
-                                            fontWeight: selectedUserIds.includes(u.id) ? 'bold' : 'normal',
-                                        }}
-                                    >
-                                        {u.name}
-                                    </span>
-                                </label>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="filter-section">
-                        <div className="section-header">
-                            <h3>Период времени</h3>
-                        </div>
-                        <p className="map-hint">
-                            Пресеты «Сегодня» / «Вчера» / «Смена» задают календарный день в Europe/Minsk. Ручной ввод
-                            в полях ниже также передаётся на сервер как время Минска (без суффикса часового пояса).
-                        </p>
-                        <div className="quick-filters">
-                            <button type="button" className="btn-quick" onClick={setLastHour}>
-                                Последний час
-                            </button>
-                            <button type="button" className="btn-quick" onClick={setLast24Hours}>
-                                Последние 24ч
-                            </button>
-                        </div>
-                        <div className="quick-filters">
-                            <button type="button" className="btn-quick" onClick={setTodayMinsk}>
-                                Сегодня (Минск)
-                            </button>
-                            <button type="button" className="btn-quick" onClick={setYesterdayMinsk}>
-                                Вчера (Минск)
-                            </button>
-                            <button type="button" className="btn-quick" onClick={setShiftMinsk}>
-                                Смена 8–20 (Минск)
-                            </button>
-                        </div>
-
-                        <div className="time-inputs">
-                            <div className="input-group">
-                                <label>Начало:</label>
-                                <input
-                                    type="datetime-local"
-                                    value={fromTime}
-                                    onChange={e => setFromTime(e.target.value)}
-                                    max={toTime || undefined}
-                                />
-                            </div>
-                            <div className="input-group">
-                                <label>Конец:</label>
-                                <input
-                                    type="datetime-local"
-                                    value={toTime}
-                                    onChange={e => setToTime(e.target.value)}
-                                    min={fromTime || undefined}
-                                />
-                            </div>
-                        </div>
-
-                        <button type="button" className="btn-primary-apply" onClick={applyPeriod}>
-                            Применить период
-                        </button>
-
-                        {fromTime && toTime && new Date(fromTime) < new Date(toTime) && (
-                            <div className="filter-status">
-                                <span className="status-active">Период задан</span>
-                            </div>
-                        )}
-                        {fromTime && toTime && new Date(fromTime) >= new Date(toTime) && (
-                            <div className="filter-status">
-                                <span className="status-error">Некорректный период</span>
-                            </div>
-                        )}
-
-                        {(fromTime || toTime) && (
-                            <button type="button" className="btn-reset" onClick={handleResetTimeFilter}>
-                                Сбросить период
-                            </button>
-                        )}
                     </div>
                 </div>
             </aside>
@@ -738,6 +869,15 @@ const MapComponent: React.FC = () => {
                         <span className="status-item">
                             На карте: <strong>{showMarkers ? displayMarkers.length : 0}</strong> / всего выбр.:{' '}
                             <strong>{visibleLocations.length}</strong> (загр. {userLocations.length})
+                        </span>
+                        <span className="status-item map-status-period">
+                            {fromTime && toTime ? (
+                                <>
+                                    Период: <strong>{fromTime}</strong> — <strong>{toTime}</strong>
+                                </>
+                            ) : (
+                                <strong>Период: за всё время</strong>
+                            )}
                         </span>
                     </div>
                     <button

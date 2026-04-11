@@ -271,6 +271,84 @@ main {
   background: #1d4ed8;
 }
 
+.map-day-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.btn-day-nav {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  color: #374151;
+}
+
+.btn-day-nav:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.map-day-label {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.map-quick-row {
+  flex-direction: row !important;
+  flex-wrap: wrap;
+}
+
+.map-quick-row .btn-quick {
+  flex: 1 1 30%;
+  min-width: 90px;
+}
+
+.btn-get-route {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: #059669;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25);
+}
+
+.btn-get-route:hover:not(:disabled) {
+  background: #047857;
+}
+
+.btn-get-route:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.map-hint-tight {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
+.map-period-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .user-list {
   display: flex;
   flex-direction: column;
