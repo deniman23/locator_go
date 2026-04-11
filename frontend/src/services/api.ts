@@ -19,25 +19,41 @@ const withApiKey = (apiKey?: string) => {
     };
 };
 
+export type LocationFetchOpts = {
+    /** true — все точки из БД без серверного «значимых» фильтра */
+    raw?: boolean;
+};
+
 // API для работы с локациями
 export const locationApi = {
-    // Получение всех локаций с опциональным API ключом
-    getAll: (apiKey?: string) => api.get<Location[]>('/location/', withApiKey(apiKey)),
-
-    // Получение локаций за выбранный интервал
-    getBetween: (from: string, to: string, apiKey?: string) =>
+    getAll: (apiKey?: string, opts?: LocationFetchOpts) =>
         api.get<Location[]>('/location/', {
             ...withApiKey(apiKey),
-            params: { from, to }
+            params: opts?.raw ? { raw: 'true' } : undefined
         }),
 
-    // Получение локации по ID пользователя
+    getBetween: (from: string, to: string, apiKey?: string, opts?: LocationFetchOpts) =>
+        api.get<Location[]>('/location/', {
+            ...withApiKey(apiKey),
+            params: {
+                from,
+                to,
+                ...(opts?.raw ? { raw: 'true' } : {})
+            }
+        }),
+
     getByUserId: (userId: number, apiKey?: string) =>
         api.get<Location>(`/location/single?user_id=${userId}`, withApiKey(apiKey)),
 
-    // Создание новой локации
     createLocation: (location: { user_id: number, latitude: number, longitude: number }, apiKey?: string) =>
-        api.post<Location>('/location/', location, withApiKey(apiKey))
+        api.post<Location>('/location/', location, withApiKey(apiKey)),
+
+    /** OSRM match; нужен ROUTING_BASE_URL на сервере. Координаты [lat, lng] */
+    getMatchedRoute: (userId: number, from: string, to: string, apiKey?: string) =>
+        api.get<{ coordinates: [number, number][] }>('/location/match-route', {
+            ...withApiKey(apiKey),
+            params: { user_id: userId, from, to }
+        })
 };
 
 // API для работы с чекпоинтами

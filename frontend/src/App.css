@@ -201,6 +201,76 @@ main {
   color: #374151;
 }
 
+.map-control-block {
+  margin: 12px 0;
+}
+
+.map-control-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+
+.map-control-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0;
+  font-size: 13px;
+  color: #374151;
+  cursor: pointer;
+}
+
+.map-control-row input {
+  margin-top: 2px;
+}
+
+.map-hint {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.4;
+  margin: 0 0 12px 0;
+}
+
+.map-user-search {
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.map-road-note {
+  font-size: 12px;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  padding: 8px;
+  margin-top: 8px;
+}
+
+.btn-primary-apply {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-primary-apply:hover {
+  background: #1d4ed8;
+}
+
 .user-list {
   display: flex;
   flex-direction: column;

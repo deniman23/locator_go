@@ -43,6 +43,8 @@ services:
       BASE_URL: ${BASE_URL:-http://localhost:8080}
       GIN_MODE: ${GIN_MODE:-release}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # OSRM-совместимый сервер (GET …/match/v1/driving/…), без завершающего /
+      ROUTING_BASE_URL: ${ROUTING_BASE_URL:-}
 
   frontend:
     build:

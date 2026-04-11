@@ -86,27 +86,66 @@ func (svc *LocationService) GetLocationsWithoutCache() ([]models.Location, error
 	return significantLocations, nil
 }
 
-// GetLocationsBetween возвращает значимые локации за указанный период.
-func (svc *LocationService) GetLocationsBetween(fromStr, toStr string) ([]models.Location, error) {
-	// сначала пробуем RFC3339 (если фронт прислал с +03:00 или Z)
-	parse := func(s string) (time.Time, error) {
-		if strings.ContainsAny(s, "Z+") {
-			return time.Parse(time.RFC3339, s)
-		}
-		// иначе парсим как локальное минское время без смещения
-		return time.ParseInLocation("2006-01-02T15:04", s, svc.minskLocation)
+// parseLocationQueryTime парсит строку из query (RFC3339 или локальное время Минска YYYY-MM-DDTHH:mm).
+func (svc *LocationService) parseLocationQueryTime(s string) (time.Time, error) {
+	if strings.ContainsAny(s, "Z+") {
+		return time.Parse(time.RFC3339, s)
 	}
+	return time.ParseInLocation("2006-01-02T15:04", s, svc.minskLocation)
+}
 
-	from, err := parse(fromStr)
+// parseLocationRange парсит пару границ интервала для выборки локаций.
+func (svc *LocationService) parseLocationRange(fromStr, toStr string) (time.Time, time.Time, error) {
+	from, err := svc.parseLocationQueryTime(fromStr)
 	if err != nil {
-		return nil, fmt.Errorf("invalid from: %v", err)
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid from: %v", err)
 	}
-	to, err := parse(toStr)
+	to, err := svc.parseLocationQueryTime(toStr)
 	if err != nil {
-		return nil, fmt.Errorf("invalid to: %v", err)
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid to: %v", err)
 	}
 	if from.After(to) {
-		return nil, fmt.Errorf("начало интервала не может быть позже окончания")
+		return time.Time{}, time.Time{}, fmt.Errorf("начало интервала не может быть позже окончания")
+	}
+	return from, to, nil
+}
+
+// sortLocationsByCreatedAt сортирует срез по возрастанию created_at (на месте).
+func sortLocationsByCreatedAt(locations []models.Location) {
+	sort.Slice(locations, func(i, j int) bool {
+		return locations[i].CreatedAt.Before(locations[j].CreatedAt)
+	})
+}
+
+// GetLocationsRaw возвращает все локации из БД без фильтра «значимых», отсортированные по времени.
+func (svc *LocationService) GetLocationsRaw() ([]models.Location, error) {
+	allLocations, err := svc.DAO.GetAll()
+	if err != nil {
+		return nil, err
+	}
+	sortLocationsByCreatedAt(allLocations)
+	return allLocations, nil
+}
+
+// GetLocationsBetweenRaw возвращает локации за период без фильтрации, отсортированные по времени.
+func (svc *LocationService) GetLocationsBetweenRaw(fromStr, toStr string) ([]models.Location, error) {
+	from, to, err := svc.parseLocationRange(fromStr, toStr)
+	if err != nil {
+		return nil, err
+	}
+	all, err := svc.DAO.GetLocationsBetween(from, to)
+	if err != nil {
+		return nil, err
+	}
+	sortLocationsByCreatedAt(all)
+	return all, nil
+}
+
+// GetLocationsBetween возвращает значимые локации за указанный период.
+func (svc *LocationService) GetLocationsBetween(fromStr, toStr string) ([]models.Location, error) {
+	from, to, err := svc.parseLocationRange(fromStr, toStr)
+	if err != nil {
+		return nil, err
 	}
 
 	all, err := svc.DAO.GetLocationsBetween(from, to)

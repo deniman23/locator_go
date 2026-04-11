@@ -46,6 +46,7 @@ func InitRoutes(
 	{
 		locationGroup := protectedApiGroup.Group("/location")
 		{
+			locationGroup.GET("/match-route", locationController.GetMatchedRoute)
 			locationGroup.GET("/", locationController.GetLocations)
 			// Убираем дублирующийся маршрут, так как он уже доступен через basicAuthGroup
 			// locationGroup.GET("/single", locationController.GetLocation)

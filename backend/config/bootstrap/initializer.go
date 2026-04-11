@@ -101,7 +101,8 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	// Location
 	locationDAO := dao.NewLocationDAO(dbConn)
 	locationService := service.NewLocationService(locationDAO)
-	locationController := controllers.NewLocationController(locationService, publisher)
+	routingBase := os.Getenv("ROUTING_BASE_URL")
+	locationController := controllers.NewLocationController(locationService, publisher, routingBase)
 
 	// Checkpoint и Visit
 	checkpointDAO := dao.NewCheckpointDAO(dbConn)
