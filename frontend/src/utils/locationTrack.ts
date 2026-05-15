@@ -26,7 +26,13 @@ export function mergeLocationsByProximityAnchorFirst(
     locations: Location[],
     radiusMeters: number
 ): Location[] {
-    const sorted = sortLocationsByCreatedAsc(locations);
+    const sorted = sortLocationsByCreatedAsc(locations)
+        .map(loc => ({
+            ...loc,
+            latitude: Number(loc.latitude),
+            longitude: Number(loc.longitude),
+        }))
+        .filter(loc => Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude));
     if (sorted.length === 0) return [];
     const out: Location[] = [];
     let anchorIdx = 0;

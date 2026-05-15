@@ -94,11 +94,13 @@ main {
 
 .map-dashboard {
   display: flex;
-  height: calc(100vh - 100px);
+  /* Высота родителя (.map-container), иначе calc(100vh-100px) > родителя и overflow:hidden обрезает низ сайдбара */
+  height: 100%;
+  min-height: 0;
   width: 100%;
   position: relative;
   background: #f3f4f6;
-  margin: -1rem -2rem;
+  margin: 0 -2rem;
   padding: 0;
 }
 
@@ -134,11 +136,15 @@ main {
 
 .map-sidebar {
   width: 320px;
+  flex-shrink: 0;
   background: white;
   box-shadow: 2px 0 12px rgba(0,0,0,0.08);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   overflow-y: auto;
-  z-index: 100;
+  overflow-x: hidden;
+  position: relative;
+  z-index: 2000;
+  isolation: isolate;
   height: 100%;
 }
 
@@ -147,7 +153,7 @@ main {
 }
 
 .sidebar-content {
-  padding: 40px;
+  padding: 40px 40px 48px;
 }
 
 .filter-section {
@@ -223,8 +229,16 @@ main {
   cursor: pointer;
 }
 
+.map-control-row > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .map-control-row input {
   margin-top: 2px;
+  flex-shrink: 0;
 }
 
 .map-hint {
@@ -269,6 +283,122 @@ main {
 
 .btn-primary-apply:hover {
   background: #1d4ed8;
+}
+
+/* Период на карте: компактные пресеты и раскрываемый точный интервал */
+.map-period-section .map-period-line {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 0 0 10px;
+  line-height: 1.4;
+}
+
+.map-day-stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.map-day-stepper .btn-day-step {
+  flex: 0 0 40px;
+  padding: 6px 0;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.map-day-stepper-label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #111827;
+  padding: 6px 4px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  min-height: 36px;
+}
+
+.map-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.map-preset-tile {
+  padding: 9px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.map-preset-tile:hover {
+  background: #dbeafe;
+  border-color: #60a5fa;
+}
+
+.map-preset-tile-muted {
+  color: #4b5563;
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.map-preset-tile-muted:hover {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+.map-expandable {
+  margin: 8px 0 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0 10px 10px;
+  background: #fafafa;
+}
+
+.map-expandable > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4b5563;
+  padding: 10px 0;
+  list-style: none;
+  user-select: none;
+}
+
+.map-expandable > summary::-webkit-details-marker {
+  display: none;
+}
+
+.map-expandable .map-time-inputs-compact {
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.map-expandable .btn-primary-apply {
+  margin-top: 10px;
+}
+
+.map-inline-error {
+  font-size: 12px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 0 0 8px;
 }
 
 .map-day-nav {
@@ -492,9 +622,11 @@ main {
 
 .map-main {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   position: relative;
+  z-index: 0;
   height: 100%;
   transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -722,6 +854,7 @@ main {
   overflow: hidden;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   height: calc(100vh - 250px);
+  min-height: 0;
 }
 
 .active-visits {

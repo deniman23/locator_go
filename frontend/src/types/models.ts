@@ -25,6 +25,8 @@ export interface Location {
     longitude: number;
     created_at: string;
     updated_at: string;
+    /** Секунд с момента последней точки (GET /location/single|current) */
+    age_seconds?: number;
 }
 
 export interface Visit {

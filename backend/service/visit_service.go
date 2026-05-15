@@ -74,8 +74,8 @@ func (vs *VisitService) EndVisit(visit *models.Visit) error {
 }
 
 // GetVisits возвращает список визитов с применением переданных фильтров.
-func (vs *VisitService) GetVisits(filters map[string]interface{}) ([]models.Visit, error) {
-	return vs.DAO.GetVisits(filters)
+func (vs *VisitService) GetVisits(filters map[string]interface{}, activeOnly bool) ([]models.Visit, error) {
+	return vs.DAO.GetVisits(filters, activeOnly)
 }
 
 // GetVisitsByFilters анализирует query-параметры, формирует фильтры и возвращает список визитов.
@@ -109,5 +109,10 @@ func (vs *VisitService) GetVisitsByFilters(params url.Values) ([]models.Visit, e
 		}
 	}
 
-	return vs.GetVisits(filters)
+	activeOnly := false
+	if a := params.Get("active"); a == "true" || a == "1" {
+		activeOnly = true
+	}
+
+	return vs.GetVisits(filters, activeOnly)
 }

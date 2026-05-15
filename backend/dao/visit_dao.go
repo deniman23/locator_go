@@ -49,13 +49,17 @@ func (dao *VisitDAO) GetVisitsByUser(userID int) ([]models.Visit, error) {
 
 // GetVisits возвращает список визитов с применением фильтров.
 // Параметр filters может содержать ключи: "id", "user_id", "checkpoint_id" и т.д.
-func (dao *VisitDAO) GetVisits(filters map[string]interface{}) ([]models.Visit, error) {
+// При activeOnly выбираются только незавершённые визиты (end_at IS NULL).
+func (dao *VisitDAO) GetVisits(filters map[string]interface{}, activeOnly bool) ([]models.Visit, error) {
 	var visits []models.Visit
 	query := dao.DB
 	for key, value := range filters {
 		query = query.Where(key+" = ?", value)
 	}
-	if err := query.Find(&visits).Error; err != nil {
+	if activeOnly {
+		query = query.Where("end_at IS NULL")
+	}
+	if err := query.Order("start_at DESC").Find(&visits).Error; err != nil {
 		return nil, err
 	}
 	return visits, nil

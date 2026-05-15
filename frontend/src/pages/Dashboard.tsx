@@ -1,16 +1,45 @@
 import React, { useEffect, useState } from 'react';
 import MapComponent from '../components/Map';
-import type { Visit } from '../types/models';
-import { visitApi } from '../services/api';
+import type { Visit, Checkpoint, User } from '../types/models';
+import { visitApi, checkpointApi, userApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+
+const POLL_MS = 10000;
+
+const isVisitActive = (visit: Visit) => visit.end_at == null || visit.end_at === '';
 
 const Dashboard: React.FC = () => {
     const [activeVisits, setActiveVisits] = useState<Visit[]>([]);
+    const [checkpointMap, setCheckpointMap] = useState<Record<number, string>>({});
+    const [userMap, setUserMap] = useState<Record<number, string>>({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Получаем API ключ
-    const { apiKey, user } = useAuth();
+    const { apiKey } = useAuth();
+
+    useEffect(() => {
+        if (!apiKey) return;
+
+        checkpointApi.getAll(apiKey)
+            .then(response => {
+                const map: Record<number, string> = {};
+                response.data.forEach((cp: Checkpoint) => {
+                    map[cp.id] = cp.name;
+                });
+                setCheckpointMap(map);
+            })
+            .catch(err => console.error('Ошибка загрузки чекпоинтов:', err));
+
+        userApi.getAll(apiKey)
+            .then((users: User[]) => {
+                const map: Record<number, string> = {};
+                users.forEach(u => {
+                    map[u.id] = u.name;
+                });
+                setUserMap(map);
+            })
+            .catch(err => console.error('Ошибка загрузки пользователей:', err));
+    }, [apiKey]);
 
     useEffect(() => {
         const fetchActiveVisits = async () => {
@@ -20,37 +49,24 @@ const Dashboard: React.FC = () => {
                 return;
             }
 
-            if (!user?.id) {
-                setError('Не удалось определить текущего пользователя.');
-                setLoading(false);
-                return;
-            }
-
             try {
-                setLoading(true);
                 setError(null);
 
-                // Передаем API ключ в запрос
-                const response = await visitApi.getByUserId(user.id, apiKey);
-
-                // Фильтруем только активные визиты
-                const active = response.data.filter(visit => visit.end_at === null);
+                const response = await visitApi.getActive(apiKey);
+                const active = response.data.filter(isVisitActive);
                 setActiveVisits(active);
-            } catch (error) {
-                console.error('Ошибка при загрузке активных визитов:', error);
+            } catch (err) {
+                console.error('Ошибка при загрузке активных визитов:', err);
                 setError('Ошибка при загрузке активных визитов');
             } finally {
                 setLoading(false);
             }
         };
 
-        fetchActiveVisits();
-
-        // Обновляем данные каждые 30 секунд
-        const interval = setInterval(fetchActiveVisits, 30000);
-
+        void fetchActiveVisits();
+        const interval = setInterval(() => void fetchActiveVisits(), POLL_MS);
         return () => clearInterval(interval);
-    }, [apiKey, user?.id]); // Добавляем актуальный user id в зависимости
+    }, [apiKey]);
 
     return (
         <div className="dashboard">
@@ -70,7 +86,11 @@ const Dashboard: React.FC = () => {
                     <ul>
                         {activeVisits.map(visit => (
                             <li key={visit.id}>
-                                Пользователь #{visit.user_id} на чекпоинте #{visit.checkpoint_id} с {new Date(visit.start_at).toLocaleTimeString()}
+                                {userMap[visit.user_id] ?? `Пользователь #${visit.user_id}`}
+                                {' — '}
+                                {checkpointMap[visit.checkpoint_id] ?? `чекпоинт #${visit.checkpoint_id}`}
+                                {', с '}
+                                {new Date(visit.start_at).toLocaleString()}
                             </li>
                         ))}
                     </ul>

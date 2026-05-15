@@ -16,6 +16,12 @@ type Location struct {
 	// Longitude — долгота.
 	Longitude float64 `gorm:"not null" json:"longitude"`
 
+	// RequestID — ответ на on-demand запрос (опционально).
+	RequestID string `gorm:"size:36;index" json:"request_id,omitempty"`
+
+	// Source — periodic | on_demand.
+	Source string `gorm:"size:20" json:"source,omitempty"`
+
 	// CreatedAt — время создания записи.
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 

@@ -5,13 +5,48 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"locator/models"
 )
 
-const osrmChunkSize = 80
+// osrmMatchChunkSize — сколько точек в одном GET к /match/v1/… Публичный router.project-osrm.org
+// принимает не больше ~10 координат (иначе TooBig); задайте ROUTING_MATCH_CHUNK_SIZE=10.
+func osrmMatchChunkSize() int {
+	const def = 80
+	s := strings.TrimSpace(os.Getenv("ROUTING_MATCH_CHUNK_SIZE"))
+	if s == "" {
+		return def
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 2 {
+		return def
+	}
+	if n > 100 {
+		return 100
+	}
+	return n
+}
+
+// osrmMatchRadiusMeters — опциональный радиус поиска (метры) на каждую точку в match; уменьшает NoMatch
+// на «рваном» GPS. Публичный OSRM: попробуйте 15–25 (50 может дать TooBig). Пусто — без radiuses.
+func osrmMatchRadiusMeters() (ok bool, meters int) {
+	s := strings.TrimSpace(os.Getenv("ROUTING_MATCH_RADIUS"))
+	if s == "" {
+		return false, 0
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 {
+		return false, 0
+	}
+	if n > 50 {
+		n = 50
+	}
+	return true, n
+}
 
 // OSRMMatchResponse минимальная структура ответа /match/v1/... с geometries=geojson.
 type osrmMatchResponse struct {
@@ -41,9 +76,10 @@ func MatchLocationsToRoads(client *http.Client, baseURL string, locs []models.Lo
 		return [][]float64{{locs[0].Latitude, locs[0].Longitude}}, nil
 	}
 
+	chunkSz := osrmMatchChunkSize()
 	var merged [][]float64
 	for start := 0; start < len(locs); {
-		end := start + osrmChunkSize
+		end := start + chunkSz
 		if end > len(locs) {
 			end = len(locs)
 		}
@@ -80,6 +116,16 @@ func osrmMatchChunk(client *http.Client, baseURL string, chunk []models.Location
 	}
 	u := fmt.Sprintf("%s/match/v1/driving/%s?overview=full&geometries=geojson&steps=false",
 		baseURL, b.String())
+	if useR, r := osrmMatchRadiusMeters(); useR {
+		var rad strings.Builder
+		for i := 0; i < len(chunk); i++ {
+			if i > 0 {
+				rad.WriteByte(';')
+			}
+			rad.WriteString(strconv.Itoa(r))
+		}
+		u += "&radiuses=" + rad.String()
+	}
 
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {

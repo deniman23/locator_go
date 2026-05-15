@@ -48,9 +48,11 @@ func (svc *LocationService) GetLocation(userID int) (*models.Location, error) {
 }
 
 // CreateLocation создаёт новую запись о местоположении без обновления существующей.
-func (svc *LocationService) CreateLocation(userID int, lat, lon float64) (*models.Location, error) {
-	log.Printf("[CreateLocation] Создание записи местоположения: userID=%d, Latitude=%.6f, Longitude=%.6f", userID, lat, lon)
+func (svc *LocationService) CreateLocation(userID int, lat, lon float64, requestID, source string) (*models.Location, error) {
+	log.Printf("[CreateLocation] Создание записи местоположения: userID=%d, Latitude=%.6f, Longitude=%.6f, source=%s", userID, lat, lon, source)
 	newLocation := models.NewLocation(userID, lat, lon)
+	newLocation.RequestID = requestID
+	newLocation.Source = source
 	if err := svc.DAO.Create(newLocation); err != nil {
 		log.Printf("[CreateLocation] Ошибка при создании записи для userID=%d: %v", userID, err)
 		return nil, err

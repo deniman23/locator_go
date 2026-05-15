@@ -29,7 +29,7 @@ services:
       DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${DB_NAME:-locator_db}
       DB_USER: ${DB_USER:-locator_user}
-      DB_PASSWORD: ${DB_PASSWORD:?Задайте DB_PASSWORD в .env (или передайте через --env-file)}
+      DB_PASSWORD: ${DB_PASSWORD:-change_me}
       DB_SSLMODE: ${DB_SSLMODE:-disable}
 
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
@@ -38,13 +38,17 @@ services:
       RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
 
       DEFAULT_ADMIN_NAME: ${DEFAULT_ADMIN_NAME:-admin}
-      DEFAULT_ADMIN_API_KEY: ${DEFAULT_ADMIN_API_KEY:-}
+      DEFAULT_ADMIN_API_KEY: ${DEFAULT_ADMIN_API_KEY:-change_me}
 
       BASE_URL: ${BASE_URL:-http://localhost:8080}
       GIN_MODE: ${GIN_MODE:-release}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       # OSRM-совместимый сервер (GET …/match/v1/driving/…), без завершающего /
       ROUTING_BASE_URL: ${ROUTING_BASE_URL:-}
+      # Публичный router.project-osrm.org — не более ~10 точек на запрос (TooBig иначе). Свой OSRM: 50–80.
+      ROUTING_MATCH_CHUNK_SIZE: ${ROUTING_MATCH_CHUNK_SIZE:-}
+      # Метры поиска на точку (OSRM radiuses); для шумного GPS на публичном OSRM — 20–25
+      ROUTING_MATCH_RADIUS: ${ROUTING_MATCH_RADIUS:-}
 
   frontend:
     build:
@@ -66,7 +70,7 @@ services:
       - db_data:/var/lib/postgresql/data
     environment:
       - POSTGRES_USER=${DB_USER:-locator_user}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:?Задайте DB_PASSWORD в .env (или передайте через --env-file)}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-change_me}
       - POSTGRES_DB=${DB_NAME:-locator_db}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-locator_user} -d ${DB_NAME:-locator_db}"]

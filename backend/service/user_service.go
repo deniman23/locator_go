@@ -66,8 +66,12 @@ func (svc *UserService) CreateUser(name string, isAdmin bool, forceAPIKey ...str
 		return nil, "", err
 	}
 
-	// Формируем содержимое для QR‑кода на основе plaintext API‑ключа.
-	qrContent := fmt.Sprintf(`{"user_id": %d, "api_key": "%s"}`, user.ID, plainKey)
+	// Формируем содержимое для QR‑кода: user_id, api_key и базовый URL API.
+	apiBase := os.Getenv("BASE_URL")
+	if apiBase == "" {
+		apiBase = "http://localhost:8080"
+	}
+	qrContent := fmt.Sprintf(`{"user_id": %d, "api_key": "%s", "api_base_url": "%s"}`, user.ID, plainKey, apiBase)
 
 	// Определяем путь для сохранения изображения QR‑кода.
 	// Убедитесь, что папка static/qrcode существует и доступна для записи.

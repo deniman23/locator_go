@@ -42,11 +42,45 @@ export const locationApi = {
             }
         }),
 
-    getByUserId: (userId: number, apiKey?: string) =>
-        api.get<Location>(`/location/single?user_id=${userId}`, withApiKey(apiKey)),
+    getByUserId: (userId: number, apiKey?: string, maxAgeSeconds?: number) =>
+        api.get<Location>(`/location/single`, {
+            ...withApiKey(apiKey),
+            params: {
+                user_id: userId,
+                ...(maxAgeSeconds != null ? { max_age_seconds: maxAgeSeconds } : {})
+            }
+        }),
 
-    createLocation: (location: { user_id: number, latitude: number, longitude: number }, apiKey?: string) =>
-        api.post<Location>('/location/', location, withApiKey(apiKey)),
+    /** Последняя позиция текущего пользователя (по API-ключу) */
+    getCurrent: (apiKey?: string, maxAgeSeconds?: number) =>
+        api.get<Location>(`/location/current`, {
+            ...withApiKey(apiKey),
+            params: maxAgeSeconds != null ? { max_age_seconds: maxAgeSeconds } : undefined
+        }),
+
+    createLocation: (
+        location: {
+            user_id?: number;
+            latitude: number;
+            longitude: number;
+            request_id?: string;
+            source?: 'periodic' | 'on_demand';
+        },
+        apiKey?: string
+    ) => api.post<Location>('/location', location, withApiKey(apiKey)),
+
+    requestOnDemand: (userId: number, apiKey?: string) =>
+        api.post<{ request_id: string; status: string; user_id: number }>(
+            '/location/request',
+            { user_id: userId },
+            withApiKey(apiKey)
+        ),
+
+    getRequestStatus: (requestId: string, apiKey?: string) =>
+        api.get<{ request_id: string; user_id: number; status: string; created_at: string; completed_at?: string }>(
+            `/location/request/${requestId}`,
+            withApiKey(apiKey)
+        ),
 
     /** OSRM match; нужен ROUTING_BASE_URL на сервере. Координаты [lat, lng] */
     getMatchedRoute: (userId: number, from: string, to: string, apiKey?: string) =>
@@ -54,6 +88,31 @@ export const locationApi = {
             ...withApiKey(apiKey),
             params: { user_id: userId, from, to }
         })
+};
+
+export const deviceApi = {
+    sendCommand: (
+        userId: number,
+        body: { type: string; payload?: Record<string, unknown> },
+        apiKey?: string
+    ) =>
+        api.post<{ command_id: string; type: string; status: string; user_id: number; payload?: Record<string, unknown> }>(
+            `/admin/users/${userId}/commands`,
+            body,
+            withApiKey(apiKey)
+        ),
+
+    getUserHealth: (userId: number, apiKey?: string) =>
+        api.get<{
+            user_id: number;
+            last_report_at: string;
+            app_version?: string;
+            platform?: string;
+            issues: string[];
+            issue_count: number;
+            healthy: boolean;
+            report: Record<string, unknown>;
+        }>(`/users/${userId}/health`, withApiKey(apiKey))
 };
 
 // API для работы с чекпоинтами
@@ -97,6 +156,10 @@ export const visitApi = {
     // Получение всех визитов (для админов)
     getAll: (apiKey?: string) =>
         api.get<Visit[]>('/visits/', withApiKey(apiKey)),
+
+    /** Только активные визиты (end_at IS NULL) по всем пользователям */
+    getActive: (apiKey?: string) =>
+        api.get<Visit[]>('/visits/?active=true', withApiKey(apiKey)),
 
     // Получение визита по ID
     getById: (id: number, apiKey?: string) =>
@@ -144,7 +207,7 @@ export const userApi = {
                 updated_at: userData.updated_at,
                 qr_code: userData.qr_code
             };
-            
+
         } catch (error) {
             console.error('Ошибка аутентификации:', error);
             throw new Error('Ошибка аутентификации');

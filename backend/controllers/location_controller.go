@@ -29,9 +29,37 @@ func getCurrentUserFromContext(ctx *gin.Context) (*models.User, bool) {
 	return currentUser, true
 }
 
+// locationSnapshot — последняя известная позиция пользователя (для GET /api/location/single|current).
+type locationSnapshot struct {
+	ID         int       `json:"id"`
+	UserID     int       `json:"user_id"`
+	Latitude   float64   `json:"latitude"`
+	Longitude  float64   `json:"longitude"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	AgeSeconds int64     `json:"age_seconds"`
+}
+
+func newLocationSnapshot(loc *models.Location) locationSnapshot {
+	age := int64(time.Since(loc.CreatedAt).Seconds())
+	if age < 0 {
+		age = 0
+	}
+	return locationSnapshot{
+		ID:         loc.ID,
+		UserID:     loc.UserID,
+		Latitude:   loc.Latitude,
+		Longitude:  loc.Longitude,
+		CreatedAt:  loc.CreatedAt,
+		UpdatedAt:  loc.UpdatedAt,
+		AgeSeconds: age,
+	}
+}
+
 // LocationController отвечает за обработку запросов, связанных с локациями.
 type LocationController struct {
 	Service        *service.LocationService
+	RequestService *service.LocationRequestService
 	Publisher      *messaging.Publisher
 	RoutingBaseURL string // OSRM/совместимый инстанс, без завершающего /; пусто — эндпоинт match недоступен
 	HTTPRouting    *http.Client
@@ -39,9 +67,15 @@ type LocationController struct {
 
 // NewLocationController создаёт новый экземпляр контроллера для работы с локациями.
 // routingBaseURL — из переменной окружения ROUTING_BASE_URL (опционально).
-func NewLocationController(service *service.LocationService, publisher *messaging.Publisher, routingBaseURL string) *LocationController {
+func NewLocationController(
+	locationService *service.LocationService,
+	requestService *service.LocationRequestService,
+	publisher *messaging.Publisher,
+	routingBaseURL string,
+) *LocationController {
 	return &LocationController{
-		Service:        service,
+		Service:        locationService,
+		RequestService: requestService,
 		Publisher:      publisher,
 		RoutingBaseURL: strings.TrimSpace(routingBaseURL),
 		HTTPRouting:    &http.Client{Timeout: 60 * time.Second},
@@ -76,7 +110,26 @@ func (lc *LocationController) GetLocation(ctx *gin.Context) {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": "Данные о местоположении не найдены"})
 		return
 	}
-	ctx.JSON(http.StatusOK, location)
+
+	snapshot := newLocationSnapshot(location)
+	if maxAgeStr := ctx.Query("max_age_seconds"); maxAgeStr != "" {
+		maxAge, err := strconv.ParseInt(maxAgeStr, 10, 64)
+		if err != nil || maxAge < 0 {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "max_age_seconds должен быть неотрицательным числом"})
+			return
+		}
+		if snapshot.AgeSeconds > maxAge {
+			ctx.JSON(http.StatusNotFound, gin.H{
+				"error":           "Локация устарела",
+				"age_seconds":     snapshot.AgeSeconds,
+				"max_age_seconds": maxAge,
+				"location":        snapshot,
+			})
+			return
+		}
+	}
+
+	ctx.JSON(http.StatusOK, snapshot)
 }
 
 // PostLocation обрабатывает POST-запрос для создания или обновления локации.
@@ -90,6 +143,8 @@ func (lc *LocationController) PostLocation(ctx *gin.Context) {
 		UserID    int     `json:"user_id"`
 		Latitude  float64 `json:"latitude"`
 		Longitude float64 `json:"longitude"`
+		RequestID string  `json:"request_id"`
+		Source    string  `json:"source"`
 	}
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Некорректное тело запроса"})
@@ -106,11 +161,45 @@ func (lc *LocationController) PostLocation(ctx *gin.Context) {
 		return
 	}
 
+	source := strings.TrimSpace(req.Source)
+	if source == "" {
+		source = models.LocationSourcePeriodic
+	}
+	switch source {
+	case models.LocationSourcePeriodic, models.LocationSourceOnDemand:
+	default:
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "source должен быть periodic или on_demand"})
+		return
+	}
+
+	requestID := strings.TrimSpace(req.RequestID)
+	if requestID != "" {
+		if source != models.LocationSourceOnDemand {
+			source = models.LocationSourceOnDemand
+		}
+	}
+
 	// Создаём новую запись о локации вместо обновления существующей.
-	location, err := lc.Service.CreateLocation(targetUserID, req.Latitude, req.Longitude)
+	location, err := lc.Service.CreateLocation(targetUserID, req.Latitude, req.Longitude, requestID, source)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания записи"})
 		return
+	}
+
+	if requestID != "" && lc.RequestService != nil {
+		if err := lc.RequestService.Complete(requestID, targetUserID); err != nil {
+			switch err {
+			case service.ErrLocationRequestNotFound:
+				ctx.JSON(http.StatusNotFound, gin.H{"error": "request_id не найден"})
+			case service.ErrLocationRequestWrongUser:
+				ctx.JSON(http.StatusForbidden, gin.H{"error": "request_id принадлежит другому пользователю"})
+			case service.ErrLocationRequestNotPending:
+				ctx.JSON(http.StatusConflict, gin.H{"error": "запрос уже обработан или просрочен"})
+			default:
+				ctx.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка завершения запроса"})
+			}
+			return
+		}
 	}
 
 	// Формируем событие для RabbitMQ на основе новой локации.

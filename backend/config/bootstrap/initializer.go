@@ -35,6 +35,9 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	if err := dbConn.AutoMigrate(
 		&models.User{},
 		&models.Location{},
+		&models.LocationRequest{},
+		&models.DeviceCommand{},
+		&models.DeviceReport{},
 		&models.Checkpoint{},
 		&models.Visit{},
 	); err != nil {
@@ -101,8 +104,16 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	// Location
 	locationDAO := dao.NewLocationDAO(dbConn)
 	locationService := service.NewLocationService(locationDAO)
+	locationRequestDAO := dao.NewLocationRequestDAO(dbConn)
+	locationRequestService := service.NewLocationRequestService(locationRequestDAO)
 	routingBase := os.Getenv("ROUTING_BASE_URL")
-	locationController := controllers.NewLocationController(locationService, publisher, routingBase)
+	locationController := controllers.NewLocationController(locationService, locationRequestService, publisher, routingBase)
+	deviceCommandDAO := dao.NewDeviceCommandDAO(dbConn)
+	deviceReportDAO := dao.NewDeviceReportDAO(dbConn)
+	deviceCommandService := service.NewDeviceCommandService(deviceCommandDAO, locationRequestService)
+	deviceReportService := service.NewDeviceReportService(deviceReportDAO)
+	deviceController := controllers.NewDeviceController(deviceCommandService, deviceReportService, locationRequestService)
+	locationRequestController := controllers.NewLocationRequestController(locationRequestService, deviceCommandService)
 
 	// Checkpoint и Visit
 	checkpointDAO := dao.NewCheckpointDAO(dbConn)
@@ -125,6 +136,8 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	// 5. Инициализация роутера
 	routerEngine := router.InitRoutes(
 		locationController,
+		locationRequestController,
+		deviceController,
 		checkpointController,
 		visitController,
 		eventController,
