@@ -10,6 +10,8 @@ import (
 
 func InitRoutes(
 	locationController *controllers.LocationController,
+	locationRequestController *controllers.LocationRequestController,
+	deviceController *controllers.DeviceController,
 	checkpointController *controllers.CheckpointController,
 	visitController *controllers.VisitController,
 	eventController *controllers.EventController,
@@ -38,6 +40,12 @@ func InitRoutes(
 		// Разрешаем всем пользователям создавать и получать локации
 		basicAuthGroup.POST("/location", locationController.PostLocation)
 		basicAuthGroup.GET("/location/single", locationController.GetLocation)
+
+		// Мобильный коннектор и legacy poll location request
+		basicAuthGroup.GET("/device/poll", deviceController.PollDevice)
+		basicAuthGroup.POST("/device/report", deviceController.PostDeviceReport)
+		basicAuthGroup.POST("/device/command/ack", deviceController.PostCommandAck)
+		basicAuthGroup.GET("/location/request", locationRequestController.PollLocationRequest)
 	}
 
 	// Остальные маршруты API требуют полной аутентификации с проверкой на админа
@@ -48,9 +56,13 @@ func InitRoutes(
 		{
 			locationGroup.GET("/match-route", locationController.GetMatchedRoute)
 			locationGroup.GET("/", locationController.GetLocations)
-			// Убираем дублирующийся маршрут, так как он уже доступен через basicAuthGroup
-			// locationGroup.GET("/single", locationController.GetLocation)
-			// locationGroup.POST("/", locationController.PostLocation)
+			locationGroup.POST("/request", locationRequestController.PostLocationRequest)
+			locationGroup.GET("/request/:request_id", locationRequestController.GetLocationRequestStatus)
+		}
+
+		adminGroup := protectedApiGroup.Group("/admin")
+		{
+			adminGroup.POST("/users/:id/commands", deviceController.PostAdminUserCommand)
 		}
 
 		// Группа маршрутов для работы с чекпоинтами.
@@ -85,6 +97,7 @@ func InitRoutes(
 			userGroup.GET("/qr-code-file", userController.GetQRCodeFile)
 			userGroup.GET("/:id/qr-code", userController.GetUserQRCode)
 			userGroup.GET("/:id/qr-code-file", userController.GetUserQRCodeFile)
+			userGroup.GET("/:id/health", deviceController.GetUserHealth)
 		}
 	}
 
