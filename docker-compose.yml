@@ -29,7 +29,7 @@ services:
       DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${DB_NAME:-locator_db}
       DB_USER: ${DB_USER:-locator_user}
-      DB_PASSWORD: ${DB_PASSWORD:-change_me}
+      DB_PASSWORD: ${DB_PASSWORD:?Задайте DB_PASSWORD в .env (или передайте через --env-file)}
       DB_SSLMODE: ${DB_SSLMODE:-disable}
 
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
@@ -38,7 +38,7 @@ services:
       RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
 
       DEFAULT_ADMIN_NAME: ${DEFAULT_ADMIN_NAME:-admin}
-      DEFAULT_ADMIN_API_KEY: ${DEFAULT_ADMIN_API_KEY:-change_me}
+      DEFAULT_ADMIN_API_KEY: ${DEFAULT_ADMIN_API_KEY:-}
 
       BASE_URL: ${BASE_URL:-http://localhost:8080}
       GIN_MODE: ${GIN_MODE:-release}
@@ -66,7 +66,7 @@ services:
       - db_data:/var/lib/postgresql/data
     environment:
       - POSTGRES_USER=${DB_USER:-locator_user}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-change_me}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?Задайте DB_PASSWORD в .env (или передайте через --env-file)}
       - POSTGRES_DB=${DB_NAME:-locator_db}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-locator_user} -d ${DB_NAME:-locator_db}"]
