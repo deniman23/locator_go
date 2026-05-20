@@ -15,6 +15,41 @@ body {
   place-items: normal;
 }
 
+/* Единый вид полей ввода по всему приложению */
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+textarea,
+select {
+  background-color: #ffffff;
+  color: #111111;
+  border: 1px solid #d1d5db;
+  box-sizing: border-box;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color'])::placeholder,
+textarea::placeholder {
+  color: #9ca3af;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+input:not([type='checkbox']):not([type='radio']):disabled,
+textarea:disabled,
+select:disabled {
+  background-color: #f3f4f6;
+  color: #6b7280;
+  cursor: not-allowed;
+}
+
+input[type='datetime-local'] {
+  color-scheme: light;
+}
+
 /* Стили приложения */
 .app {
   display: flex;
@@ -104,36 +139,6 @@ main {
   padding: 0;
 }
 
-.sidebar-toggle {
-  position: absolute;
-  left: 320px;
-  top: 20px;
-  z-index: 1000;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: white;
-  border: 2px solid #e5e7eb;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  font-size: 14px;
-  color: #6b7280;
-}
-
-.sidebar-toggle:hover {
-  background: #f9fafb;
-  transform: scale(1.1);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-}
-
-.sidebar-toggle.sidebar-closed {
-  left: 10px;
-}
-
 .map-sidebar {
   width: 320px;
   flex-shrink: 0;
@@ -146,10 +151,6 @@ main {
   z-index: 2000;
   isolation: isolate;
   height: 100%;
-}
-
-.map-sidebar.closed {
-  transform: translateX(-100%);
 }
 
 .sidebar-content {
@@ -252,10 +253,8 @@ main {
   width: 100%;
   padding: 8px 10px;
   margin-bottom: 10px;
-  border: 1px solid #e5e7eb;
   border-radius: 6px;
   font-size: 13px;
-  box-sizing: border-box;
 }
 
 .map-road-note {
@@ -285,110 +284,21 @@ main {
   background: #1d4ed8;
 }
 
-/* Период на карте: компактные пресеты и раскрываемый точный интервал */
-.map-period-section .map-period-line {
+/* Период на карте: кастомный интервал */
+.map-period-summary {
   font-size: 12px;
-  color: #6b7280;
+  color: #374151;
   margin: 0 0 10px;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
-.map-day-stepper {
-  display: flex;
-  align-items: stretch;
-  gap: 6px;
+.map-period-section .map-time-inputs-compact {
+  margin-bottom: 8px;
+}
+
+.map-period-section .btn-primary-apply {
+  width: 100%;
   margin-bottom: 10px;
-}
-
-.map-day-stepper .btn-day-step {
-  flex: 0 0 40px;
-  padding: 6px 0;
-  font-size: 18px;
-  line-height: 1;
-  font-weight: 700;
-}
-
-.map-day-stepper-label {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 600;
-  color: #111827;
-  padding: 6px 4px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  min-height: 36px;
-}
-
-.map-preset-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.map-preset-tile {
-  padding: 9px 4px;
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid #bfdbfe;
-  border-radius: 6px;
-  background: #eff6ff;
-  color: #1d4ed8;
-  cursor: pointer;
-  text-align: center;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.map-preset-tile:hover {
-  background: #dbeafe;
-  border-color: #60a5fa;
-}
-
-.map-preset-tile-muted {
-  color: #4b5563;
-  background: #f3f4f6;
-  border-color: #d1d5db;
-}
-
-.map-preset-tile-muted:hover {
-  background: #e5e7eb;
-  border-color: #9ca3af;
-}
-
-.map-expandable {
-  margin: 8px 0 10px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 0 10px 10px;
-  background: #fafafa;
-}
-
-.map-expandable > summary {
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  color: #4b5563;
-  padding: 10px 0;
-  list-style: none;
-  user-select: none;
-}
-
-.map-expandable > summary::-webkit-details-marker {
-  display: none;
-}
-
-.map-expandable .map-time-inputs-compact {
-  gap: 8px;
-  margin-bottom: 0;
-}
-
-.map-expandable .btn-primary-apply {
-  margin-top: 10px;
 }
 
 .map-inline-error {
@@ -562,7 +472,6 @@ main {
 .input-group input {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid #e5e7eb;
   border-radius: 6px;
   font-size: 13px;
   transition: all 0.2s;
@@ -770,6 +679,17 @@ main {
   margin-bottom: 4px;
 }
 
+.popup-stationary-label {
+  display: inline-block;
+  margin: 4px 0 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-radius: 4px;
+}
+
 .popup-coords {
   color: #6b7280;
   font-size: 11px;
@@ -811,14 +731,6 @@ main {
     width: 280px;
   }
 
-  .sidebar-toggle {
-    left: 280px;
-  }
-
-  .sidebar-toggle.sidebar-closed {
-    left: 10px;
-  }
-
   .status-info {
     font-size: 12px;
   }
@@ -836,10 +748,6 @@ main {
     max-width: 320px;
   }
 
-  .sidebar-toggle {
-    left: auto;
-    right: 10px;
-  }
 }
 
 /* Стили для дашборда */
@@ -924,7 +832,6 @@ main {
 
 .checkpoint-form input {
   padding: 0.5rem;
-  border: 1px solid #ddd;
   border-radius: 4px;
   width: 100%;
 }
@@ -967,7 +874,6 @@ main {
 
 .user-selector input {
   padding: 0.5rem;
-  border: 1px solid #ddd;
   border-radius: 4px;
   width: 100px;
 }
@@ -1052,7 +958,6 @@ main {
 .form-group input {
   width: 100%;
   padding: 0.75rem;
-  border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 1rem;
 }
@@ -1165,6 +1070,13 @@ main {
   padding: 0.75rem;
   text-align: left;
   border-bottom: 1px solid #ddd;
+  vertical-align: middle;
+}
+
+.users-table th:last-child,
+.users-table td.user-actions-cell {
+  min-width: 22rem;
+  width: 1%;
 }
 
 .users-table th {
@@ -1213,6 +1125,127 @@ main {
 
 .qr-code-button-small:hover {
   background-color: #2980b9;
+}
+
+.status-refresh-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: #7f8c8d;
+}
+
+.device-badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.device-badge--online {
+  background-color: #d5f5e3;
+  color: #1e8449;
+}
+
+.device-badge--stale {
+  background-color: #fdebd0;
+  color: #b7950b;
+}
+
+.device-badge--offline {
+  background-color: #f2f3f4;
+  color: #7f8c8d;
+}
+
+.device-badge--healthy {
+  background-color: #d5f5e3;
+  color: #1e8449;
+}
+
+.device-badge--unhealthy {
+  background-color: #fadbd8;
+  color: #c0392b;
+}
+
+.device-meta {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: #7f8c8d;
+}
+
+.device-issues {
+  margin: 0.25rem 0 0;
+  padding-left: 1rem;
+  font-size: 0.75rem;
+  color: #c0392b;
+}
+
+.user-actions-inner {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.device-action-button {
+  background-color: #27ae60;
+  color: white;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.device-action-button:hover:not(:disabled) {
+  background-color: #219a52;
+}
+
+.device-action-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.device-action-button--update {
+  background-color: #8e44ad;
+}
+
+.device-action-button--update:hover:not(:disabled) {
+  background-color: #7d3c98;
+}
+
+.device-action-notice {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  color: #2980b9;
+  font-weight: 500;
+}
+
+.device-report-details {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+}
+
+.device-report-details summary {
+  cursor: pointer;
+  color: #2c3e50;
+}
+
+.device-report-summary {
+  margin: 0.25rem 0;
+  padding-left: 1rem;
+  color: #34495e;
+}
+
+.device-report-raw {
+  margin: 0.35rem 0 0;
+  padding: 0.5rem;
+  max-height: 160px;
+  overflow: auto;
+  background: #f4f6f7;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .edit-button {
@@ -1275,8 +1308,85 @@ main {
 
 .filter-group input {
   padding: 8px;
-  border: 1px solid #ccc;
   border-radius: 4px;
+}
+
+.filter-group-checkbox {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.filter-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filter-checkbox-label input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+  margin: 0;
+}
+
+.filter-hint {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  color: #6b7280;
+  font-weight: normal;
+}
+
+.visit-row-outside td {
+  background-color: #f0f9ff;
+}
+
+.visit-row-outside td:nth-child(3) {
+  font-style: italic;
+  color: #0369a1;
+}
+
+.visits-date-range {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.visits-date-range-label {
+  font-weight: 600;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.visits-date-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.visits-period-summary {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #4b5563;
+  line-height: 1.4;
+}
+
+.visit-map-button {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.visit-map-button:hover {
+  background: #dbeafe;
+  border-color: #60a5fa;
 }
 
 .filter-buttons {

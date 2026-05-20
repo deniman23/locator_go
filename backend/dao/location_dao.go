@@ -54,3 +54,16 @@ func (dao *LocationDAO) GetLocationsBetween(from, to time.Time) ([]models.Locati
 	}
 	return locations, nil
 }
+
+// GetLocationsByUserBetween возвращает точки пользователя за период, отсортированные по времени.
+func (dao *LocationDAO) GetLocationsByUserBetween(userID int, from, to time.Time) ([]models.Location, error) {
+	var locations []models.Location
+	err := dao.DB.
+		Where("user_id = ? AND created_at BETWEEN ? AND ?", userID, from, to).
+		Order("created_at ASC").
+		Find(&locations).Error
+	if err != nil {
+		return nil, err
+	}
+	return locations, nil
+}

@@ -115,6 +115,17 @@ export const deviceApi = {
         }>(`/users/${userId}/health`, withApiKey(apiKey))
 };
 
+export const releaseApi = {
+    /** Отправить команду app_update на устройство пользователя */
+    publishUpdate: (userId: number, apiKey?: string) =>
+        api.post<{
+            command_id: string;
+            type: string;
+            user_id: number;
+            payload?: Record<string, unknown>;
+        }>(`/admin/releases/publish-update/${userId}`, {}, withApiKey(apiKey)),
+};
+
 // API для работы с чекпоинтами
 export const checkpointApi = {
     // Получение всех чекпоинтов с опциональным API ключом
@@ -139,13 +150,19 @@ export const visitApi = {
     getWithFilters: (params: {
         id?: number,
         user_id?: number,
-        checkpoint_id?: number
+        checkpoint_id?: number,
+        from?: string,
+        to?: string,
+        include_outside?: boolean,
     }, apiKey?: string) => {
         // Создаем строку запроса из параметров
         const queryParams = new URLSearchParams();
         if (params.id) queryParams.append('id', params.id.toString());
         if (params.user_id) queryParams.append('user_id', params.user_id.toString());
         if (params.checkpoint_id) queryParams.append('checkpoint_id', params.checkpoint_id.toString());
+        if (params.from) queryParams.append('from', params.from);
+        if (params.to) queryParams.append('to', params.to);
+        if (params.include_outside) queryParams.append('include_outside', 'true');
 
         const queryString = queryParams.toString();
         const url = queryString ? `/visits/?${queryString}` : '/visits/';

@@ -96,7 +96,7 @@ func (svc *LocationService) parseLocationQueryTime(s string) (time.Time, error) 
 	return time.ParseInLocation("2006-01-02T15:04", s, svc.minskLocation)
 }
 
-// parseLocationRange парсит пару границ интервала для выборки локаций.
+// parseLocationRange парсит пару границ интервала (Europe/Minsk или RFC3339).
 func (svc *LocationService) parseLocationRange(fromStr, toStr string) (time.Time, time.Time, error) {
 	from, err := svc.parseLocationQueryTime(fromStr)
 	if err != nil {
@@ -106,10 +106,33 @@ func (svc *LocationService) parseLocationRange(fromStr, toStr string) (time.Time
 	if err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("invalid to: %v", err)
 	}
+	to = svc.normalizeLocationRangeEnd(to, toStr)
 	if from.After(to) {
 		return time.Time{}, time.Time{}, fmt.Errorf("начало интервала не может быть позже окончания")
 	}
 	return from, to, nil
+}
+
+// normalizeLocationRangeEnd включает всю минуту, если в строке задано только HH:mm.
+func (svc *LocationService) normalizeLocationRangeEnd(to time.Time, toStr string) time.Time {
+	if !strings.Contains(toStr, "T") {
+		return to
+	}
+	timePart := strings.SplitN(toStr, "T", 2)[1]
+	if strings.Count(timePart, ":") == 1 {
+		return to.Add(59*time.Second + 999*time.Millisecond)
+	}
+	return to
+}
+
+// locationRangeForDB переводит границы интервала в UTC для сравнения с created_at в БД
+// (TIMESTAMP WITHOUT TIME ZONE, фактически UTC с сервера приложения).
+func (svc *LocationService) locationRangeForDB(fromStr, toStr string) (time.Time, time.Time, error) {
+	from, to, err := svc.parseLocationRange(fromStr, toStr)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	return from.UTC(), to.UTC(), nil
 }
 
 // sortLocationsByCreatedAt сортирует срез по возрастанию created_at (на месте).
@@ -131,7 +154,7 @@ func (svc *LocationService) GetLocationsRaw() ([]models.Location, error) {
 
 // GetLocationsBetweenRaw возвращает локации за период без фильтрации, отсортированные по времени.
 func (svc *LocationService) GetLocationsBetweenRaw(fromStr, toStr string) ([]models.Location, error) {
-	from, to, err := svc.parseLocationRange(fromStr, toStr)
+	from, to, err := svc.locationRangeForDB(fromStr, toStr)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +168,7 @@ func (svc *LocationService) GetLocationsBetweenRaw(fromStr, toStr string) ([]mod
 
 // GetLocationsBetween возвращает значимые локации за указанный период.
 func (svc *LocationService) GetLocationsBetween(fromStr, toStr string) ([]models.Location, error) {
-	from, to, err := svc.parseLocationRange(fromStr, toStr)
+	from, to, err := svc.locationRangeForDB(fromStr, toStr)
 	if err != nil {
 		return nil, err
 	}

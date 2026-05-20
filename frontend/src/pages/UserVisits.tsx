@@ -1,7 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Visit, Checkpoint, User } from '../types/models';
 import { visitApi, checkpointApi, userApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { formatDateTime, formatPeriodRange, toDateTimeLocalInput } from '../utils/dateFormat';
+import { compareMinskDateTimes, minskDayBounds, minskNowRange } from '../utils/locationTrack';
 
 // Функция для форматирования длительности из секунд в читаемый формат
 const formatDuration = (seconds: number): string => {
@@ -53,16 +56,35 @@ const getSecondForm = (seconds: number): string => {
     return 'секунд';
 };
 
+const defaultDayRange = () => minskDayBounds(0);
+
+const isOutsideVisit = (visit: Visit): boolean =>
+    visit.kind === 'outside' || visit.checkpoint_id === 0;
+
+const getVisitCheckpointLabel = (
+    visit: Visit,
+    checkpointMap: Record<number, string>,
+): string => {
+    if (isOutsideVisit(visit)) {
+        return 'Вне чекпоинтов';
+    }
+    return checkpointMap[visit.checkpoint_id] || String(visit.checkpoint_id);
+};
+
 const UserVisits: React.FC = () => {
+    const navigate = useNavigate();
+    const defaultRange = useMemo(() => defaultDayRange(), []);
     const [visits, setVisits] = useState<Visit[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Состояние для фильтров
     const [filters, setFilters] = useState({
         id: '',
         user_id: '',
-        checkpoint_id: ''
+        checkpoint_id: '',
+        from: defaultRange.from,
+        to: defaultRange.to,
+        showOutside: false,
     });
 
     // Состояние для сопоставления ID чекпоинта и его названия
@@ -120,7 +142,14 @@ const UserVisits: React.FC = () => {
             setError(null);
 
             // Создаем параметры для запроса
-            const params: Record<string, number> = {};
+            const params: {
+                id?: number;
+                user_id?: number;
+                checkpoint_id?: number;
+                from?: string;
+                to?: string;
+                include_outside?: boolean;
+            } = {};
 
             // Добавляем только непустые параметры
             if (filters.id && !isNaN(parseInt(filters.id))) {
@@ -135,7 +164,30 @@ const UserVisits: React.FC = () => {
                 params.checkpoint_id = parseInt(filters.checkpoint_id);
             }
 
-            // Выполняем запрос с фильтрами
+            if (filters.from && filters.to) {
+                if (compareMinskDateTimes(filters.from, filters.to) >= 0) {
+                    setError('Дата начала должна быть раньше даты окончания');
+                    setLoading(false);
+                    return;
+                }
+                params.from = filters.from;
+                params.to = filters.to;
+            }
+
+            if (filters.showOutside) {
+                if (!filters.user_id || isNaN(parseInt(filters.user_id))) {
+                    setError('Для участков вне чекпоинтов укажите ID пользователя и период');
+                    setLoading(false);
+                    return;
+                }
+                if (!params.from || !params.to) {
+                    setError('Для участков вне чекпоинтов укажите период (с — по)');
+                    setLoading(false);
+                    return;
+                }
+                params.include_outside = true;
+            }
+
             const response = await visitApi.getWithFilters(params, apiKey);
             setVisits(response.data);
         } catch (error) {
@@ -151,24 +203,44 @@ const UserVisits: React.FC = () => {
         fetchVisits();
     }, [fetchVisits]);
 
-    // Обработчик изменения значений фильтров
     const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
+        const { name, value, type, checked } = e.target;
         setFilters(prev => ({
             ...prev,
-            [name]: value
+            [name]: type === 'checkbox' ? checked : value,
         }));
     };
 
-    // Обработчик сброса фильтров
     const handleResetFilters = () => {
+        const b = defaultDayRange();
         setFilters({
             id: '',
             user_id: '',
-            checkpoint_id: ''
+            checkpoint_id: '',
+            from: b.from,
+            to: b.to,
+            showOutside: false,
         });
-        // После сброса фильтров загружаем все визиты
         setTimeout(fetchVisits, 0);
+    };
+
+    const visitMapRange = (visit: Visit): { from: string; to: string } => ({
+        from: toDateTimeLocalInput(visit.start_at),
+        to: visit.end_at ? toDateTimeLocalInput(visit.end_at) : minskNowRange(0).to,
+    });
+
+    const openVisitOnMap = (visit: Visit) => {
+        const { from, to } = visitMapRange(visit);
+        if (!from || !to || compareMinskDateTimes(from, to) >= 0) {
+            setError('Не удалось определить интервал визита для карты');
+            return;
+        }
+        const q = new URLSearchParams({
+            user_id: String(visit.user_id),
+            from,
+            to,
+        });
+        navigate(`/?${q.toString()}`);
     };
 
     return (
@@ -215,6 +287,55 @@ const UserVisits: React.FC = () => {
                     />
                 </div>
 
+                <div className="filter-group visits-date-range">
+                    <span className="visits-date-range-label">Период (Europe/Minsk)</span>
+                    <div className="visits-date-inputs">
+                        <div className="filter-group">
+                            <label htmlFor="from">С</label>
+                            <input
+                                type="datetime-local"
+                                id="from"
+                                name="from"
+                                value={filters.from}
+                                onChange={handleFilterChange}
+                                max={filters.to || undefined}
+                            />
+                        </div>
+                        <div className="filter-group">
+                            <label htmlFor="to">По</label>
+                            <input
+                                type="datetime-local"
+                                id="to"
+                                name="to"
+                                value={filters.to}
+                                onChange={handleFilterChange}
+                                min={filters.from || undefined}
+                            />
+                        </div>
+                    </div>
+                    {filters.from && filters.to && (
+                        <p className="visits-period-summary">
+                            {formatPeriodRange(filters.from, filters.to)}
+                        </p>
+                    )}
+                </div>
+
+                <div className="filter-group filter-group-checkbox">
+                    <label htmlFor="showOutside" className="filter-checkbox-label">
+                        <input
+                            type="checkbox"
+                            id="showOutside"
+                            name="showOutside"
+                            checked={filters.showOutside}
+                            onChange={handleFilterChange}
+                        />
+                        Показывать перемещения вне чекпоинтов
+                    </label>
+                    <p className="filter-hint">
+                        Участки по GPS, когда пользователь не в зоне ни одного чекпоинта. Нужны ID пользователя и период.
+                    </p>
+                </div>
+
                 <div className="filter-buttons">
                     <button onClick={fetchVisits} className="filter-button">
                         Применить фильтры
@@ -239,18 +360,31 @@ const UserVisits: React.FC = () => {
                             <th>Начало</th>
                             <th>Окончание</th>
                             <th>Длительность</th>
+                            <th>Карта</th>
                         </tr>
                         </thead>
                         <tbody>
                         {visits.map(visit => (
-                            <tr key={visit.id}>
-                                <td>{visit.id}</td>
+                            <tr
+                                key={`${visit.kind ?? 'checkpoint'}-${visit.id}`}
+                                className={isOutsideVisit(visit) ? 'visit-row-outside' : undefined}
+                            >
+                                <td>{isOutsideVisit(visit) ? '—' : visit.id}</td>
                                 <td>{userMap[visit.user_id] || visit.user_id}</td>
-                                <td>{checkpointMap[visit.checkpoint_id] || visit.checkpoint_id}</td>
-                                <td>{new Date(visit.start_at).toLocaleString()}</td>
-                                <td>{visit.end_at ? new Date(visit.end_at).toLocaleString() : 'Активен'}</td>
+                                <td>{getVisitCheckpointLabel(visit, checkpointMap)}</td>
+                                <td>{formatDateTime(visit.start_at)}</td>
+                                <td>{visit.end_at ? formatDateTime(visit.end_at) : 'Активен'}</td>
                                 <td>
                                     {visit.end_at ? formatDuration(visit.duration) : 'В процессе'}
+                                </td>
+                                <td>
+                                    <button
+                                        type="button"
+                                        className="visit-map-button"
+                                        onClick={() => openVisitOnMap(visit)}
+                                    >
+                                        Маршрут на карте
+                                    </button>
                                 </td>
                             </tr>
                         ))}

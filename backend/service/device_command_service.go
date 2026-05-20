@@ -5,6 +5,7 @@ import (
 	"errors"
 	"locator/dao"
 	"locator/models"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -104,6 +105,13 @@ func (svc *DeviceCommandService) Poll(userID int) (*models.DeviceCommand, error)
 	return cmd, nil
 }
 
+// appUpdateProgressAck — промежуточные статусы OTA с телефона (не ошибка и не финал).
+var appUpdateProgressAck = map[string]struct{}{
+	"accepted":   {},
+	"downloaded": {},
+	"installing": {},
+}
+
 // Ack подтверждает выполнение или ошибку команды на устройстве.
 func (svc *DeviceCommandService) Ack(commandID string, userID int, status, message string) error {
 	cmd, err := svc.DAO.GetByID(commandID)
@@ -118,9 +126,18 @@ func (svc *DeviceCommandService) Ack(commandID string, userID int, status, messa
 	}
 
 	now := time.Now()
+	status = strings.TrimSpace(strings.ToLower(status))
 	success := status == "ok" || status == "success"
 	if success {
 		if err := svc.DAO.MarkAcked(commandID, status, message, now); err != nil {
+			return err
+		}
+	} else if cmd.Type == models.DeviceCommandTypeAppUpdate {
+		if _, progress := appUpdateProgressAck[status]; progress {
+			if err := svc.DAO.MarkProgress(commandID, status, message, now); err != nil {
+				return err
+			}
+		} else if err := svc.DAO.MarkFailed(commandID, status, message, now); err != nil {
 			return err
 		}
 	} else if err := svc.DAO.MarkFailed(commandID, status, message, now); err != nil {

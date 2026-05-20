@@ -24,12 +24,13 @@ RUN apk add --no-cache \
 WORKDIR /app
 
 # директории под статику
-RUN mkdir -p /app/static/qrcode && chmod -R 755 /app/static
+RUN mkdir -p /app/static/qrcode /app/static/releases && chmod -R 755 /app/static
 
 # копируем бинарь, goose и миграции
 COPY --from=builder /app/locator /app/locator
 COPY --from=builder /go/bin/goose /usr/local/bin/goose
 COPY migrations /migrations
+COPY static/releases /app/static/releases
 
 # передаём DB_* (переопределяются в docker-compose)
 ENV \

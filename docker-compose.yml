@@ -13,6 +13,7 @@ services:
         condition: service_healthy
     volumes:
       - qr_codes:/app/static/qrcode
+      - ${APK_RELEASES_DIR:-./backend/static/releases}:/app/static/releases
       - ./backend/logs:/app/logs
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/healthz || exit 1"]

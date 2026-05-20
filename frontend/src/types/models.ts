@@ -36,6 +36,8 @@ export interface Visit {
     start_at: string;
     end_at: string | null;
     duration: number;
+    /** checkpoint — визит в чекпоинт; outside — перемещение вне всех чекпоинтов */
+    kind?: 'checkpoint' | 'outside';
 }
 
 export interface LocationEvent {

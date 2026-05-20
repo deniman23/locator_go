@@ -112,14 +112,20 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	deviceReportDAO := dao.NewDeviceReportDAO(dbConn)
 	deviceCommandService := service.NewDeviceCommandService(deviceCommandDAO, locationRequestService)
 	deviceReportService := service.NewDeviceReportService(deviceReportDAO)
-	deviceController := controllers.NewDeviceController(deviceCommandService, deviceReportService, locationRequestService)
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8080"
+	}
+	appReleaseController := controllers.NewAppReleaseController("static/releases/manifest.json", "static/releases", baseURL)
+	deviceController := controllers.NewDeviceController(deviceCommandService, deviceReportService, locationRequestService, appReleaseController)
 	locationRequestController := controllers.NewLocationRequestController(locationRequestService, deviceCommandService)
 
 	// Checkpoint и Visit
 	checkpointDAO := dao.NewCheckpointDAO(dbConn)
 	checkpointService := service.NewCheckpointService(checkpointDAO)
 	visitDAO := dao.NewVisitDAO(dbConn)
-	visitService := service.NewVisitService(visitDAO)
+	travelSegmentService := service.NewTravelSegmentService(locationDAO, checkpointService)
+	visitService := service.NewVisitService(visitDAO, travelSegmentService)
 	checkpointController := controllers.NewCheckpointController(
 		checkpointService, locationService, visitService, publisher,
 	)
@@ -138,6 +144,7 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 		locationController,
 		locationRequestController,
 		deviceController,
+		appReleaseController,
 		checkpointController,
 		visitController,
 		eventController,

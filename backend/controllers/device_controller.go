@@ -12,20 +12,23 @@ import (
 
 // DeviceController — poll, отчёты и ack для мобильного коннектора.
 type DeviceController struct {
-	CommandService *service.DeviceCommandService
-	ReportService  *service.DeviceReportService
-	RequestService *service.LocationRequestService
+	CommandService    *service.DeviceCommandService
+	ReportService     *service.DeviceReportService
+	RequestService    *service.LocationRequestService
+	ReleaseController *AppReleaseController
 }
 
 func NewDeviceController(
 	commandService *service.DeviceCommandService,
 	reportService *service.DeviceReportService,
 	requestService *service.LocationRequestService,
+	releaseController *AppReleaseController,
 ) *DeviceController {
 	return &DeviceController{
-		CommandService: commandService,
-		ReportService:  reportService,
-		RequestService: requestService,
+		CommandService:    commandService,
+		ReportService:     reportService,
+		RequestService:    requestService,
+		ReleaseController: releaseController,
 	}
 }
 
@@ -236,5 +239,52 @@ func (dc *DeviceController) PostAdminUserCommand(ctx *gin.Context) {
 		"status":     cmd.Status,
 		"user_id":    cmd.UserID,
 		"payload":    payload,
+	})
+}
+
+// PostPublishAppUpdate — POST /api/admin/releases/publish-update/:user_id
+// Команда app_update из manifest.json на устройство.
+func (dc *DeviceController) PostPublishAppUpdate(ctx *gin.Context) {
+	currentUser, ok := getCurrentUserFromContext(ctx)
+	if !ok {
+		return
+	}
+	if !currentUser.IsAdmin {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Требуются права администратора"})
+		return
+	}
+	if dc.ReleaseController == nil {
+		ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "Релизы не настроены"})
+		return
+	}
+
+	userID, err := strconv.Atoi(ctx.Param("user_id"))
+	if err != nil || userID <= 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный user_id"})
+		return
+	}
+
+	if _, err := dc.ReleaseController.SyncManifestFromReleaseAPK(); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось синхронизировать manifest с APK: " + err.Error()})
+		return
+	}
+
+	payload, err := dc.ReleaseController.ManifestForAppUpdate()
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Манифест релиза недоступен"})
+		return
+	}
+
+	cmd, err := dc.CommandService.EnqueueCommand(userID, models.DeviceCommandTypeAppUpdate, payload)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось создать команду"})
+		return
+	}
+	cmdPayload, _ := service.CommandPayloadMap(cmd)
+	ctx.JSON(http.StatusAccepted, gin.H{
+		"command_id": cmd.ID,
+		"type":       cmd.Type,
+		"user_id":    userID,
+		"payload":    cmdPayload,
 	})
 }

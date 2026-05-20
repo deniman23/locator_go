@@ -1,8 +1,15 @@
 #!/bin/bash
 set -eo pipefail
 
-# Переходим в корневую директорию с проектом, где находится docker-compose.yml
-cd /root/locator_go
+# Корень проекта на сервере
+if [[ -d /var/www/locator_go ]] && [[ -f /var/www/locator_go/docker-compose.yml ]]; then
+  cd /var/www/locator_go
+elif [[ -d /var/www/locator ]] && [[ -f /var/www/locator/docker-compose.yml ]]; then
+  cd /var/www/locator
+else
+  cd "$(dirname "$0")"
+fi
+mkdir -p "${APK_RELEASES_DIR:-/var/www/locator_go/static/releases}"
 
 # Обновляем репозиторий с новыми изменениями
 git pull origin main

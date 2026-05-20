@@ -1,0 +1,2 @@
+adb devices //получение дивайсов
+adb shell dpm set-device-owner com.example.lctr_app/.corporate.CorporateDeviceAdminReceiver //засетивания device owner

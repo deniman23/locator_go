@@ -87,6 +87,11 @@ func (svc *CheckpointService) GetCheckpointByID(id int) (*models.Checkpoint, err
 	return cp, nil
 }
 
+// DistanceToCheckpoint возвращает расстояние от точки до центра чекпоинта в метрах.
+func (svc *CheckpointService) DistanceToCheckpoint(lat, lon float64, checkpoint *models.Checkpoint) float64 {
+	return haversineDistance(lat, lon, checkpoint.Latitude, checkpoint.Longitude)
+}
+
 // IsLocationInCheckpoint проверяет, находится ли заданная локация внутри данного чекпоинта.
 // Расстояние вычисляется с использованием формулы Хаверсина.
 func (svc *CheckpointService) IsLocationInCheckpoint(loc *models.Location, checkpoint *models.Checkpoint) bool {

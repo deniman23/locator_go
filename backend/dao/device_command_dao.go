@@ -64,6 +64,15 @@ func (dao *DeviceCommandDAO) MarkFailed(id, ackStatus, ackMessage string, at tim
 	}).Error
 }
 
+// MarkProgress сохраняет промежуточный ack (accepted/downloaded/installing) без закрытия команды.
+func (dao *DeviceCommandDAO) MarkProgress(id, ackStatus, ackMessage string, at time.Time) error {
+	return dao.DB.Model(&models.DeviceCommand{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"ack_status":  ackStatus,
+		"ack_message": ackMessage,
+		"acked_at":    at,
+	}).Error
+}
+
 func (dao *DeviceCommandDAO) ExpirePendingOlderThan(cutoff time.Time) error {
 	return dao.DB.Model(&models.DeviceCommand{}).
 		Where("status IN ? AND created_at < ?", []string{

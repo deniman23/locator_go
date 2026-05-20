@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"time"
 
 	"gorm.io/gorm"
 	"locator/models"
@@ -13,7 +14,7 @@ import (
 type VisitEventProcessor struct {
 	CheckpointService *CheckpointService
 	VisitService      *VisitService
-	// Можно добавить и другие зависимости (например, LocationService) при необходимости
+	geofenceStates    *geofenceStateStore
 }
 
 // NewVisitEventProcessor создаёт новый экземпляр обработчика событий.
@@ -21,6 +22,7 @@ func NewVisitEventProcessor(cs *CheckpointService, vs *VisitService) *VisitEvent
 	return &VisitEventProcessor{
 		CheckpointService: cs,
 		VisitService:      vs,
+		geofenceStates:    newGeofenceStateStore(),
 	}
 }
 
@@ -38,7 +40,6 @@ func (vep *VisitEventProcessor) ProcessEvent(message []byte) error {
 	log.Printf("[ProcessEvent] Событие успешно десериализовано: userID=%d, Latitude=%.6f, Longitude=%.6f",
 		event.UserID, event.Latitude, event.Longitude)
 
-	// Получаем список всех чекпоинтов.
 	checkpoints, err := vep.CheckpointService.GetCheckpoints()
 	if err != nil {
 		log.Printf("[ProcessEvent] Ошибка получения чекпоинтов: %v", err)
@@ -46,7 +47,6 @@ func (vep *VisitEventProcessor) ProcessEvent(message []byte) error {
 	}
 	log.Printf("[ProcessEvent] Получено %d чекпоинтов для обработки", len(checkpoints))
 
-	// Обрабатываем каждый чекпоинт отдельно.
 	for _, cp := range checkpoints {
 		if err := vep.processCheckpoint(cp, event); err != nil {
 			return err
@@ -57,35 +57,36 @@ func (vep *VisitEventProcessor) ProcessEvent(message []byte) error {
 	return nil
 }
 
-// processCheckpoint разделяет логику обработки для каждого чекпоинта.
 func (vep *VisitEventProcessor) processCheckpoint(cp models.Checkpoint, event models.LocationEvent) error {
 	log.Printf("[processCheckpoint] Проверка чекпоинта: ID=%d, Name=%s", cp.ID, cp.Name)
 
-	// Определяем, находится ли локация пользователя внутри данного чекпоинта.
-	inZone := vep.CheckpointService.IsLocationInCheckpoint(
-		&models.Location{
-			Latitude:  event.Latitude,
-			Longitude: event.Longitude,
-		},
-		&cp,
-	)
+	distance := vep.CheckpointService.DistanceToCheckpoint(event.Latitude, event.Longitude, &cp)
+	now := event.OccurredAt.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
 
-	// Получаем активный визит (если он есть).
 	activeVisit, err := vep.getActiveVisit(event.UserID, cp.ID)
 	if err != nil {
 		return err
 	}
 
-	// Обрабатываем в зависимости от того, находится пользователь в зоне или нет.
-	if inZone {
-		return vep.handleInZone(event.UserID, cp.ID, activeVisit)
-	} else {
-		return vep.handleOutOfZone(event.UserID, cp.ID, activeVisit)
+	hasVisit := activeVisit != nil
+	inside := geofenceInside(distance, cp.Radius, hasVisit)
+	state := vep.geofenceStates.get(event.UserID, cp.ID)
+
+	log.Printf("[processCheckpoint] userID=%d checkpointID=%d distance=%.1fm radius=%.1fm inside=%v hasVisit=%v",
+		event.UserID, cp.ID, distance, cp.Radius, inside, hasVisit)
+
+	if inside {
+		state.clearPendingExit()
+		return vep.handleInside(event.UserID, cp.ID, activeVisit, state, now)
 	}
+
+	state.clearPendingEnter()
+	return vep.handleOutside(event.UserID, cp.ID, activeVisit, state, now)
 }
 
-// getActiveVisit получает активный визит для указанного пользователя и чекпоинта.
-// Если возникает ошибка, не связанная с отсутствием записи, она логируется и передается дальше.
 func (vep *VisitEventProcessor) getActiveVisit(userID, checkpointID int) (*models.Visit, error) {
 	activeVisit, err := vep.VisitService.GetActiveVisit(userID, checkpointID)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -95,35 +96,66 @@ func (vep *VisitEventProcessor) getActiveVisit(userID, checkpointID int) (*model
 	return activeVisit, nil
 }
 
-// handleInZone обрабатывает ситуацию, когда пользователь находится в зоне чекпоинта.
-// Если активного визита нет — запускает новый, иначе логирует, что визит уже активен.
-func (vep *VisitEventProcessor) handleInZone(userID, checkpointID int, activeVisit *models.Visit) error {
-	log.Printf("[handleInZone] Пользователь %d находится в зоне чекпоинта ID=%d", userID, checkpointID)
-	if activeVisit == nil {
-		_, err := vep.VisitService.StartVisit(userID, checkpointID)
-		if err != nil {
-			log.Printf("[handleInZone] Ошибка начала визита для userID=%d, checkpointID=%d: %v", userID, checkpointID, err)
-			return err
-		}
-		log.Printf("[handleInZone] Начат новый визит для пользователя %d на чекпоинте %d", userID, checkpointID)
-	} else {
-		log.Printf("[handleInZone] Для пользователя %d уже существует активный визит на чекпоинте %d", userID, checkpointID)
+// handleInside: при отсутствии визита ждём устойчивого нахождения в зоне, затем создаём визит.
+func (vep *VisitEventProcessor) handleInside(userID, checkpointID int, activeVisit *models.Visit, state *geofencePendingState, now time.Time) error {
+	if activeVisit != nil {
+		log.Printf("[handleInside] Пользователь %d в зоне чекпоинта %d, визит уже активен", userID, checkpointID)
+		return nil
 	}
+
+	enterGrace := geofenceEnterGraceSeconds()
+	if !state.pendingEnterElapsed(now, enterGrace) {
+		state.markPendingEnter(now)
+		log.Printf("[handleInside] Ожидание подтверждения входа userID=%d checkpointID=%d (grace=%ds)",
+			userID, checkpointID, enterGrace)
+		return nil
+	}
+
+	state.clearPendingEnter()
+	_, err := vep.VisitService.StartVisit(userID, checkpointID)
+	if err != nil {
+		log.Printf("[handleInside] Ошибка начала визита для userID=%d, checkpointID=%d: %v", userID, checkpointID, err)
+		return err
+	}
+	log.Printf("[handleInside] Начат визит для userID=%d checkpointID=%d после %ds в зоне",
+		userID, checkpointID, enterGrace)
 	return nil
 }
 
-// handleOutOfZone обрабатывает ситуацию, когда пользователь не находится в зоне чекпоинта.
-// Если активный визит существует — завершаем его, иначе логируем отсутствие активного визита.
-func (vep *VisitEventProcessor) handleOutOfZone(userID, checkpointID int, activeVisit *models.Visit) error {
-	log.Printf("[handleOutOfZone] Пользователь %d вне зоны чекпоинта ID=%d", userID, checkpointID)
-	if activeVisit != nil {
-		if err := vep.VisitService.EndVisit(activeVisit); err != nil {
-			log.Printf("[handleOutOfZone] Ошибка завершения визита для userID=%d, checkpointID=%d: %v", userID, checkpointID, err)
+// handleOutside: при активном визите ждём устойчивого выхода из зоны, затем завершаем.
+func (vep *VisitEventProcessor) handleOutside(userID, checkpointID int, activeVisit *models.Visit, state *geofencePendingState, now time.Time) error {
+	if activeVisit == nil {
+		return nil
+	}
+
+	exitGrace := geofenceExitGraceSeconds()
+	if !state.pendingExitElapsed(now, exitGrace) {
+		state.markPendingExit(now)
+		log.Printf("[handleOutside] Ожидание подтверждения выхода userID=%d checkpointID=%d (grace=%ds)",
+			userID, checkpointID, exitGrace)
+		return nil
+	}
+
+	state.clearPendingExit()
+
+	minVisit := geofenceMinVisitSeconds()
+	elapsed := int(now.Sub(activeVisit.StartAt.UTC()).Seconds())
+	if elapsed < minVisit {
+		if err := vep.VisitService.AbandonVisit(activeVisit); err != nil {
+			log.Printf("[handleOutside] Ошибка отмены короткого визита userID=%d checkpointID=%d: %v",
+				userID, checkpointID, err)
 			return err
 		}
-		log.Printf("[handleOutOfZone] Завершён визит для пользователя %d на чекпоинте %d", userID, checkpointID)
-	} else {
-		log.Printf("[handleOutOfZone] Нет активного визита для завершения для пользователя %d на чекпоинте %d", userID, checkpointID)
+		log.Printf("[handleOutside] Короткий визит (%ds < %ds) отменён для userID=%d checkpointID=%d",
+			elapsed, minVisit, userID, checkpointID)
+		return nil
 	}
+
+	if err := vep.VisitService.EndVisit(activeVisit); err != nil {
+		log.Printf("[handleOutside] Ошибка завершения визита userID=%d checkpointID=%d: %v",
+			userID, checkpointID, err)
+		return err
+	}
+	log.Printf("[handleOutside] Завершён визит для userID=%d checkpointID=%d", userID, checkpointID)
 	return nil
 }

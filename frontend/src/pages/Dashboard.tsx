@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import MapComponent from '../components/Map';
+import { formatDateTime } from '../utils/dateFormat';
 import type { Visit, Checkpoint, User } from '../types/models';
 import { visitApi, checkpointApi, userApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -90,7 +91,7 @@ const Dashboard: React.FC = () => {
                                 {' — '}
                                 {checkpointMap[visit.checkpoint_id] ?? `чекпоинт #${visit.checkpoint_id}`}
                                 {', с '}
-                                {new Date(visit.start_at).toLocaleString()}
+                                {formatDateTime(visit.start_at)}
                             </li>
                         ))}
                     </ul>

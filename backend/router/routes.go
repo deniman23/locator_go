@@ -12,6 +12,7 @@ func InitRoutes(
 	locationController *controllers.LocationController,
 	locationRequestController *controllers.LocationRequestController,
 	deviceController *controllers.DeviceController,
+	appReleaseController *controllers.AppReleaseController,
 	checkpointController *controllers.CheckpointController,
 	visitController *controllers.VisitController,
 	eventController *controllers.EventController,
@@ -29,6 +30,7 @@ func InitRoutes(
 
 	// Базовый маршрут для API, без middleware
 	apiGroup := router.Group("/api")
+	apiGroup.GET("/app/release/latest", appReleaseController.GetLatestRelease)
 
 	// Маршруты, доступные всем авторизованным пользователям
 	basicAuthGroup := apiGroup.Group("")
@@ -63,6 +65,8 @@ func InitRoutes(
 		adminGroup := protectedApiGroup.Group("/admin")
 		{
 			adminGroup.POST("/users/:id/commands", deviceController.PostAdminUserCommand)
+			adminGroup.POST("/releases/publish-update/:user_id", deviceController.PostPublishAppUpdate)
+			adminGroup.POST("/releases/sync-manifest", appReleaseController.PostSyncReleaseManifest)
 		}
 
 		// Группа маршрутов для работы с чекпоинтами.

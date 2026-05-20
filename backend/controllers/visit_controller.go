@@ -21,7 +21,7 @@ func NewVisitController(visitService *service.VisitService) *VisitController {
 func (vc *VisitController) GetVisitsByFilters(ctx *gin.Context) {
 	visits, err := vc.VisitService.GetVisitsByFilters(ctx.Request.URL.Query())
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка получения визитов"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	ctx.JSON(http.StatusOK, visits)

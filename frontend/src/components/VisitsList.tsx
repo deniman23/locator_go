@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { Visit, Checkpoint } from '../types/models';
 import { checkpointApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { formatDateTime } from '../utils/dateFormat';
 
 interface VisitsListProps {
     visits: Visit[];
@@ -61,8 +62,8 @@ const VisitsList: React.FC<VisitsListProps> = ({
                             <td>{visit.id}</td>
                             <td>{visit.user_id}</td>
                             <td>{checkpointMap[visit.checkpoint_id] || visit.checkpoint_id}</td>
-                            <td>{new Date(visit.start_at).toLocaleString()}</td>
-                            <td>{visit.end_at ? new Date(visit.end_at).toLocaleString() : 'Активен'}</td>
+                            <td>{formatDateTime(visit.start_at)}</td>
+                            <td>{visit.end_at ? formatDateTime(visit.end_at) : 'Активен'}</td>
                             <td>{visit.duration ? `${visit.duration} сек.` : '-'}</td>
                         </tr>
                     ))}

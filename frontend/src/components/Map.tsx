@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
     MapContainer,
     TileLayer,
@@ -16,15 +17,23 @@ import { checkpointApi, locationApi, userApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+import { formatDateTime, formatPeriodRange } from '../utils/dateFormat';
 import {
-    mergeLocationsByProximityAnchorFirst,
+    buildLocationClusters,
+    compareMinskDateTimes,
     minskDayBounds,
-    minskShiftBounds,
-    sortLocationsByCreatedAsc
+    sortLocationsByCreatedAsc,
+    type LocationCluster,
 } from '../utils/locationTrack';
 
-/** Мин. расстояние между оставляемыми маркерами вдоль трека (якорь — последняя оставленная точка). 5 м меньше шага типичного GPS при движении, поэтому визуально «не работало». */
-const MERGE_RADIUS_M = 30;
+/** Радиус «стоянки»: точки ближе считаются одной локацией (домашний GPS-дрейф). */
+const STATIONARY_CLUSTER_RADIUS_M = 50;
+
+type MapMarkerPoint = Location & {
+    clusterSize?: number;
+    clusterFrom?: string;
+    clusterTo?: string;
+};
 
 const DefaultIcon = L.icon({
     iconUrl: icon,
@@ -86,6 +95,8 @@ type MarkerMode = 'all' | 'merged5m';
 
 const MapComponent: React.FC = () => {
     const { apiKey, user } = useAuth();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const routeParamsApplied = useRef(false);
     const day0 = useMemo(() => minskDayBounds(0), []);
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [userLocations, setUserLocations] = useState<Location[]>([]);
@@ -98,14 +109,9 @@ const MapComponent: React.FC = () => {
     /** По умолчанию — календарный сегодняшний день (Europe/Minsk) */
     const [fromTime, setFromTime] = useState(day0.from);
     const [toTime, setToTime] = useState(day0.to);
-    /** Смещение календарного дня относительно «сегодня» в Минске (кнопки −1 / +1 день) */
-    const [minskDayOffset, setMinskDayOffset] = useState(0);
-    /** false — даты менялись вручную, подпись «Свой период» */
-    const [dayRangeFromPreset, setDayRangeFromPreset] = useState(true);
-    const [sidebarOpen, setSidebarOpen] = useState(true);
 
     const [useRawLocations, setUseRawLocations] = useState(true);
-    const [markerMode, setMarkerMode] = useState<MarkerMode>('all');
+    const [markerMode, setMarkerMode] = useState<MarkerMode>('merged5m');
     const [trackMode, setTrackMode] = useState<TrackMode>('polyline');
     const [useRoadMatch, setUseRoadMatch] = useState(false);
     const [roadCoords, setRoadCoords] = useState<[number, number][] | null>(null);
@@ -163,9 +169,7 @@ const MapComponent: React.FC = () => {
 
             let locRes;
             if (currentFilters.fromTime && currentFilters.toTime) {
-                const fromDate = new Date(currentFilters.fromTime);
-                const toDate = new Date(currentFilters.toTime);
-                if (fromDate >= toDate) {
+                if (compareMinskDateTimes(currentFilters.fromTime, currentFilters.toTime) >= 0) {
                     setError('Дата начала должна быть раньше даты окончания');
                     setLoading(false);
                     return;
@@ -215,6 +219,27 @@ const MapComponent: React.FC = () => {
     }, [fetchData]);
 
     useEffect(() => {
+        if (routeParamsApplied.current) return;
+        const userIdStr = searchParams.get('user_id');
+        const from = searchParams.get('from');
+        const to = searchParams.get('to');
+        if (!userIdStr || !from || !to) return;
+
+        const uid = parseInt(userIdStr, 10);
+        if (Number.isNaN(uid)) return;
+
+        routeParamsApplied.current = true;
+        setSelectedUserIds([uid]);
+        setFromTime(from);
+        setToTime(to);
+        setTrackMode('polyline');
+        filtersRef.current = { fromTime: from, toTime: to };
+        setShouldFitBounds(true);
+        setSearchParams({}, { replace: true });
+        setTimeout(() => void fetchDataRef.current?.(), 0);
+    }, [searchParams, setSearchParams]);
+
+    useEffect(() => {
         if (!autoRefresh) return;
         const interval = setInterval(() => {
             fetchDataRef.current?.();
@@ -249,9 +274,7 @@ const MapComponent: React.FC = () => {
             };
         }
 
-        const fromDate = new Date(fromTime);
-        const toDate = new Date(toTime);
-        if (fromDate >= toDate) {
+        if (compareMinskDateTimes(fromTime, toTime) >= 0) {
             return () => {
                 cancelled = true;
             };
@@ -305,30 +328,57 @@ const MapComponent: React.FC = () => {
         [userLocations, selectedUserIds]
     );
 
-    const displayMarkers = useMemo(() => {
-        if (markerMode === 'all') return visibleLocations;
-        const byUser = new Map<number, Location[]>();
-        for (const loc of visibleLocations) {
-            byUser.set(loc.user_id, [...(byUser.get(loc.user_id) || []), loc]);
+    const clustersByUser = useMemo(() => {
+        const m = new Map<number, LocationCluster[]>();
+        for (const uid of selectedUserIds) {
+            const locs = visibleLocations.filter(l => l.user_id === uid);
+            m.set(uid, buildLocationClusters(locs, STATIONARY_CLUSTER_RADIUS_M));
         }
-        const out: Location[] = [];
-        for (const list of byUser.values()) {
-            out.push(...mergeLocationsByProximityAnchorFirst(list, MERGE_RADIUS_M));
+        return m;
+    }, [visibleLocations, selectedUserIds]);
+
+    const displayMarkers = useMemo((): MapMarkerPoint[] => {
+        if (markerMode === 'all') return visibleLocations;
+        const out: MapMarkerPoint[] = [];
+        for (const clusters of clustersByUser.values()) {
+            for (const cluster of clusters) {
+                const rep = cluster.representative;
+                if (cluster.points.length > 1) {
+                    out.push({
+                        ...rep,
+                        clusterSize: cluster.points.length,
+                        clusterFrom: cluster.points[0].created_at,
+                        clusterTo: cluster.points[cluster.points.length - 1].created_at,
+                    });
+                } else {
+                    out.push(rep);
+                }
+            }
         }
         return out;
-    }, [visibleLocations, markerMode]);
+    }, [visibleLocations, markerMode, clustersByUser]);
 
     const gpsPolylinesByUser = useMemo(() => {
         const m = new Map<number, [number, number][]>();
         for (const uid of selectedUserIds) {
             const locs = visibleLocations.filter(l => l.user_id === uid);
-            const sorted = sortLocationsByCreatedAsc(locs);
-            if (sorted.length >= 2) {
-                m.set(uid, sorted.map(l => [l.latitude, l.longitude] as [number, number]));
+            if (markerMode === 'all') {
+                const sorted = sortLocationsByCreatedAsc(locs);
+                if (sorted.length >= 2) {
+                    m.set(uid, sorted.map(l => [l.latitude, l.longitude] as [number, number]));
+                }
+                continue;
+            }
+            const clusters = clustersByUser.get(uid) || [];
+            if (clusters.length >= 2) {
+                m.set(
+                    uid,
+                    clusters.map(c => [c.centerLat, c.centerLng] as [number, number])
+                );
             }
         }
         return m;
-    }, [visibleLocations, selectedUserIds]);
+    }, [visibleLocations, selectedUserIds, markerMode, clustersByUser]);
 
     const extraLatLngForBounds = useMemo(() => {
         const pts: [number, number][] = [];
@@ -361,7 +411,7 @@ const MapComponent: React.FC = () => {
             setError('Укажите период (начало и конец)');
             return;
         }
-        if (new Date(fromTime) >= new Date(toTime)) {
+        if (compareMinskDateTimes(fromTime, toTime) >= 0) {
             setError('Дата начала должна быть раньше даты окончания');
             return;
         }
@@ -379,208 +429,50 @@ const MapComponent: React.FC = () => {
         }
     };
 
-    const loadAllTime = () => {
-        setFromTime('');
-        setToTime('');
-        setMinskDayOffset(0);
-        setDayRangeFromPreset(true);
-        setTimeout(() => void fetchData(), 100);
-    };
-
-    const goPrevCalendarDay = () => {
-        setDayRangeFromPreset(true);
-        if (!fromTime || !toTime) {
-            setMinskDayOffset(-1);
-            const b = minskDayBounds(-1);
-            setFromTime(b.from);
-            setToTime(b.to);
-            setTimeout(() => void fetchData(), 0);
-            return;
-        }
-        const next = minskDayOffset - 1;
-        setMinskDayOffset(next);
-        const b = minskDayBounds(next);
-        setFromTime(b.from);
-        setToTime(b.to);
-        setTimeout(() => void fetchData(), 0);
-    };
-
-    const goNextCalendarDay = () => {
-        setDayRangeFromPreset(true);
-        if (!fromTime || !toTime) {
-            setMinskDayOffset(1);
-            const b = minskDayBounds(1);
-            setFromTime(b.from);
-            setToTime(b.to);
-            setTimeout(() => void fetchData(), 0);
-            return;
-        }
-        const next = minskDayOffset + 1;
-        setMinskDayOffset(next);
-        const b = minskDayBounds(next);
-        setFromTime(b.from);
-        setToTime(b.to);
-        setTimeout(() => void fetchData(), 0);
-    };
-
-    const setLastHour = () => {
-        setDayRangeFromPreset(false);
-        const now = new Date();
-        const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-        setFromTime(hourAgo.toISOString().slice(0, 16));
-        setToTime(now.toISOString().slice(0, 16));
-        setTimeout(() => void fetchData(), 100);
-    };
-
-    const setLast24Hours = () => {
-        setDayRangeFromPreset(false);
-        const now = new Date();
-        const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        setFromTime(dayAgo.toISOString().slice(0, 16));
-        setToTime(now.toISOString().slice(0, 16));
-        setTimeout(() => void fetchData(), 100);
-    };
-
-    const setTodayMinsk = () => {
-        setMinskDayOffset(0);
-        setDayRangeFromPreset(true);
-        const { from, to } = minskDayBounds(0);
-        setFromTime(from);
-        setToTime(to);
-        setTimeout(() => void fetchData(), 100);
-    };
-
-    const setYesterdayMinsk = () => {
-        setMinskDayOffset(-1);
-        setDayRangeFromPreset(true);
-        const { from, to } = minskDayBounds(-1);
-        setFromTime(from);
-        setToTime(to);
-        setTimeout(() => void fetchData(), 100);
-    };
-
-    const setShiftMinsk = () => {
-        setMinskDayOffset(0);
-        setDayRangeFromPreset(true);
-        const { from, to } = minskShiftBounds(0);
-        setFromTime(from);
-        setToTime(to);
-        setTimeout(() => void fetchData(), 100);
-    };
-
     if (loading && !checkpoints.length && !userLocations.length) {
         return <div className="loading-message">Загрузка карты...</div>;
     }
 
     return (
         <div className="map-dashboard">
-            <button
-                className={`sidebar-toggle ${!sidebarOpen ? 'sidebar-closed' : ''}`}
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                title={sidebarOpen ? 'Скрыть панель' : 'Показать панель'}
-            >
-                {sidebarOpen ? '◀' : '▶'}
-            </button>
-
-            <aside className={`map-sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
+            <aside className="map-sidebar open">
                 <div className="sidebar-content">
                     <div className="filter-section map-period-section">
                         <div className="section-header">
                             <h3>Период</h3>
                         </div>
-                        <p className="map-period-line">
-                            Календарные дни — <strong>Europe/Minsk</strong>. Пресеты сразу подгружают точки.
-                        </p>
-
-                        <div className="map-day-stepper" role="group" aria-label="Соседний календарный день">
-                            <button
-                                type="button"
-                                className="btn-day-nav btn-day-step"
-                                onClick={goPrevCalendarDay}
-                                title="Предыдущий календарный день (Минск)"
-                            >
-                                ‹
-                            </button>
-                            <span className="map-day-stepper-label" title="Текущий выбранный день или режим">
-                                {!fromTime || !toTime
-                                    ? 'Все даты'
-                                    : !dayRangeFromPreset
-                                        ? 'Свой интервал'
-                                        : minskDayOffset === 0
-                                            ? 'Сегодня'
-                                            : minskDayOffset === -1
-                                                ? 'Вчера'
-                                                : minskDayOffset > 0
-                                                    ? `+${minskDayOffset} дн.`
-                                                    : `${minskDayOffset} дн.`}
-                            </span>
-                            <button
-                                type="button"
-                                className="btn-day-nav btn-day-step"
-                                onClick={goNextCalendarDay}
-                                title="Следующий календарный день (Минск)"
-                            >
-                                ›
-                            </button>
-                        </div>
-
-                        <div className="map-preset-grid" role="group" aria-label="Быстрый период">
-                            <button type="button" className="map-preset-tile" onClick={setTodayMinsk}>
-                                Сегодня
-                            </button>
-                            <button type="button" className="map-preset-tile" onClick={setYesterdayMinsk}>
-                                Вчера
-                            </button>
-                            <button type="button" className="map-preset-tile" onClick={setShiftMinsk} title="08:00–20:00 по Минску">
-                                Смена 8–20
-                            </button>
-                            <button type="button" className="map-preset-tile" onClick={setLastHour}>
-                                Последний час
-                            </button>
-                            <button type="button" className="map-preset-tile" onClick={setLast24Hours}>
-                                24 часа
-                            </button>
-                            <button type="button" className="map-preset-tile map-preset-tile-muted" onClick={loadAllTime}>
-                                Всё время
-                            </button>
-                        </div>
-
-                        <details className="map-expandable">
-                            <summary>Свой интервал (дата и время)</summary>
-                            <div className="time-inputs map-time-inputs-compact">
-                                <div className="input-group">
-                                    <label htmlFor="map-from">С</label>
-                                    <input
-                                        id="map-from"
-                                        type="datetime-local"
-                                        value={fromTime}
-                                        onChange={e => {
-                                            setDayRangeFromPreset(false);
-                                            setFromTime(e.target.value);
-                                        }}
-                                        max={toTime || undefined}
-                                    />
-                                </div>
-                                <div className="input-group">
-                                    <label htmlFor="map-to">По</label>
-                                    <input
-                                        id="map-to"
-                                        type="datetime-local"
-                                        value={toTime}
-                                        onChange={e => {
-                                            setDayRangeFromPreset(false);
-                                            setToTime(e.target.value);
-                                        }}
-                                        min={fromTime || undefined}
-                                    />
-                                </div>
+                        <div className="time-inputs map-time-inputs-compact">
+                            <div className="input-group">
+                                <label htmlFor="map-from">С</label>
+                                <input
+                                    id="map-from"
+                                    type="datetime-local"
+                                    value={fromTime}
+                                    onChange={e => setFromTime(e.target.value)}
+                                    max={toTime || undefined}
+                                />
                             </div>
-                            <button type="button" className="btn-primary-apply" onClick={applyPeriod}>
-                                Применить интервал
-                            </button>
-                        </details>
+                            <div className="input-group">
+                                <label htmlFor="map-to">По</label>
+                                <input
+                                    id="map-to"
+                                    type="datetime-local"
+                                    value={toTime}
+                                    onChange={e => setToTime(e.target.value)}
+                                    min={fromTime || undefined}
+                                />
+                            </div>
+                        </div>
 
-                        {fromTime && toTime && new Date(fromTime) >= new Date(toTime) && (
+                        {fromTime && toTime && (
+                            <p className="map-period-summary">{formatPeriodRange(fromTime, toTime)}</p>
+                        )}
+
+                        <button type="button" className="btn-primary-apply" onClick={applyPeriod}>
+                            Применить интервал
+                        </button>
+
+                        {fromTime && toTime && compareMinskDateTimes(fromTime, toTime) >= 0 && (
                             <p className="map-inline-error" role="alert">
                                 Укажите «с» раньше, чем «по».
                             </p>
@@ -670,6 +562,20 @@ const MapComponent: React.FC = () => {
                             />
                             <span>Все точки (без серверного упрощения)</span>
                         </label>
+                        <label className="map-control-row">
+                            <input
+                                type="checkbox"
+                                checked={useRoadMatch}
+                                disabled={selectedUserIds.length !== 1}
+                                onChange={e => setUseRoadMatch(e.target.checked)}
+                            />
+                            <span
+                                title="Включите, если нужна линия движения по сети дорог, а не только по точкам GPS. Доступно, когда в списке «Пользователи» отмечен ровно один сотрудник. На сервере должен быть настроен маршрутизатор (OSRM)."
+                            >
+                                Путь по дорогам
+                            </span>
+                        </label>
+                        {roadMatchNote && <div className="map-road-note">{roadMatchNote}</div>}
                         <div className="map-control-block">
                             <span className="map-control-label">Маркеры</span>
                             <label className="map-control-row">
@@ -689,7 +595,7 @@ const MapComponent: React.FC = () => {
                                     onChange={() => setMarkerMode('merged5m')}
                                 />
                                 <span>
-                                    Основные (редкие маркеры, шаг по треку ~{MERGE_RADIUS_M}&nbsp;м)
+                                    Стоянки одной точкой (радиус ~{STATIONARY_CLUSTER_RADIUS_M}&nbsp;м)
                                 </span>
                             </label>
                         </div>
@@ -726,20 +632,6 @@ const MapComponent: React.FC = () => {
                         <label className="map-control-row">
                             <input
                                 type="checkbox"
-                                checked={useRoadMatch}
-                                disabled={selectedUserIds.length !== 1}
-                                onChange={e => setUseRoadMatch(e.target.checked)}
-                            />
-                            <span
-                                title="Включите, если нужна линия движения по сети дорог, а не только по точкам GPS. Доступно, когда в списке «Пользователи» отмечен ровно один сотрудник. На сервере должен быть настроен маршрутизатор (OSRM)."
-                            >
-                                Путь по дорогам
-                            </span>
-                        </label>
-                        {roadMatchNote && <div className="map-road-note">{roadMatchNote}</div>}
-                        <label className="map-control-row">
-                            <input
-                                type="checkbox"
                                 checked={autoRefresh}
                                 onChange={e => setAutoRefresh(e.target.checked)}
                             />
@@ -749,7 +641,7 @@ const MapComponent: React.FC = () => {
                 </div>
             </aside>
 
-            <div className={`map-main ${sidebarOpen ? 'with-sidebar' : 'full-width'}`}>
+            <div className="map-main with-sidebar">
                 {error && (
                     <div className="map-error-banner">
                         <span>{error}</span>
@@ -830,22 +722,37 @@ const MapComponent: React.FC = () => {
                             const color = getUserColor(loc.user_id);
                             const userName =
                                 allUsers.find(u => u.id === loc.user_id)?.name || `ID: ${loc.user_id}`;
+                            const isStationary = (loc.clusterSize ?? 0) > 1;
                             return (
                                 <CircleMarker
-                                    key={`${markerMode}-${loc.id}`}
+                                    key={`${markerMode}-${loc.id}-${loc.clusterSize ?? 0}`}
                                     center={[loc.latitude, loc.longitude]}
-                                    radius={8}
+                                    radius={isStationary ? 14 : 8}
                                     pathOptions={{
                                         color,
                                         fillColor: color,
-                                        fillOpacity: 0.8,
-                                        weight: 2,
+                                        fillOpacity: isStationary ? 0.55 : 0.8,
+                                        weight: isStationary ? 3 : 2,
                                     }}
                                 >
                                     <Popup>
                                         <div className="popup-content">
                                             <strong>{userName}</strong>
-                                            <div>{new Date(loc.created_at).toLocaleString()}</div>
+                                            {isStationary ? (
+                                                <>
+                                                    <div className="popup-stationary-label">Стоянка</div>
+                                                    <div>
+                                                        {loc.clusterSize} GPS-точек в радиусе ~
+                                                        {STATIONARY_CLUSTER_RADIUS_M} м
+                                                    </div>
+                                                    <div>
+                                                        {formatDateTime(loc.clusterFrom)} —{' '}
+                                                        {formatDateTime(loc.clusterTo)}
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <div>{formatDateTime(loc.created_at)}</div>
+                                            )}
                                             <div className="popup-coords">
                                                 {loc.latitude.toFixed(6)}, {loc.longitude.toFixed(6)}
                                             </div>
@@ -872,7 +779,7 @@ const MapComponent: React.FC = () => {
                         <span className="status-item map-status-period">
                             {fromTime && toTime ? (
                                 <>
-                                    Период: <strong>{fromTime}</strong> — <strong>{toTime}</strong>
+                                    Период: <strong>{formatPeriodRange(fromTime, toTime)}</strong>
                                 </>
                             ) : (
                                 <strong>Период: за всё время</strong>
