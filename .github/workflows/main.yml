@@ -1,9 +1,5 @@
-# Деплой backend/frontend на сервер после push в main.
-#
-# Secrets — те же три, что в lctr_app (android-release.yml):
-#   DEPLOY_SSH_HOST
-#   DEPLOY_SSH_USER
-#   DEPLOY_SSH_KEY
+# Деплой на сервер после push в main.
+# Secrets: DEPLOY_SSH_HOST (87.232.65.52), SERVER_USER (root), SERVER_PASSWORD
 
 name: Deploy to Main Environment
 
@@ -15,29 +11,16 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Deploy to Server
-        timeout-minutes: 20
-        env:
-          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
-          DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
-          DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT || '22' }}
-        run: |
-          if [[ -z "${DEPLOY_SSH_HOST:-}" || -z "${DEPLOY_SSH_USER:-}" ]]; then
-            echo "::error::Add DEPLOY_SSH_HOST and DEPLOY_SSH_USER to locator_go secrets (same as lctr_app)"
-            exit 1
-          fi
-          if [[ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]]; then
-            echo "::error::Add DEPLOY_SSH_KEY to locator_go secrets (copy the same value from lctr_app)"
-            exit 1
-          fi
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > deploy_key.pem
-          chmod 600 deploy_key.pem
-          export DEPLOY_SSH_KEY_FILE="$RUNNER_TEMP/deploy_key.pem"
-          mv deploy_key.pem "$DEPLOY_SSH_KEY_FILE"
-          chmod +x scripts/ci/deploy-locator-go.sh
-          ./scripts/ci/deploy-locator-go.sh
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: "22"
+          command_timeout: 30m
+          script: |
+            cd /root/locator_go
+            git pull origin main
+            docker compose up --build -d
