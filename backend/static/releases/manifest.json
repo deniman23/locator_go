@@ -1,10 +1,10 @@
 {
-  "version_name": "1.0.10",
-  "version_code": 11,
+  "version_name": "1.0.11",
+  "version_code": 12,
   "package_name": "com.example.lctr_app",
-  "filename": "locator-1.0.10-11.apk",
-  "sha256": "e81e914a6759dff06bf542b3cfe9fe49ca22e0af012a737c86c24414b65dca32",
+  "filename": "locator-1.0.11-12.apk",
+  "sha256": "a1c9c2c75dd9f2eb4f41baa7571b8bdd9913e5bc7f1e092964854278acc3f9ee",
   "force": true,
-  "changelog": "Release 1.0.10 (build 11)",
-  "url": "http://87.232.65.52:8080/static/releases/locator-1.0.10-11.apk"
+  "changelog": "Release 1.0.11 (build 12)",
+  "url": "http://87.232.65.52:8080/static/releases/locator-1.0.11-12.apk"
 }
