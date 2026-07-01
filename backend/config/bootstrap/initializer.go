@@ -125,14 +125,13 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	visitDAO := dao.NewVisitDAO(dbConn)
 	travelSegmentService := service.NewTravelSegmentService(locationDAO, checkpointService)
 	visitService := service.NewVisitService(visitDAO, travelSegmentService)
-	visitEventProcessor := service.NewVisitEventProcessor(checkpointService, visitService, locationDAO)
-	locationController := controllers.NewLocationController(locationService, locationRequestService, publisher, visitEventProcessor, routingBase)
+	locationController := controllers.NewLocationController(locationService, locationRequestService, publisher, routingBase)
 	checkpointController := controllers.NewCheckpointController(
-		checkpointService, locationService, visitService, publisher, visitEventProcessor,
+		checkpointService, locationService, visitService, publisher,
 	)
 	visitController := controllers.NewVisitController(visitService)
 
-	eventController := controllers.NewEventController(publisher, visitEventProcessor)
+	eventController := controllers.NewEventController(publisher)
 
 	// User
 	userDAO := dao.NewUserDAO(dbConn)
@@ -151,13 +150,6 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 		userController,
 		userService,
 	)
-
-	// 6. Восстановление зависших визитов по истории GPS (после простоя consumer и т.п.)
-	go func() {
-		if err := visitEventProcessor.ReconcileActiveVisits(); err != nil {
-			log.Printf("ReconcileActiveVisits: %v", err)
-		}
-	}()
 
 	app := &App{
 		Router:    routerEngine,
