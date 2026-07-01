@@ -1,9 +1,9 @@
 # Деплой backend/frontend на сервер после push в main.
 #
-# Secrets (repository locator_go — те же значения, что в lctr_app):
-#   DEPLOY_SSH_HOST   — 87.232.65.52
-#   DEPLOY_SSH_USER   — root
-#   DEPLOY_SSH_KEY    — приватный SSH-ключ (deploy key / server key)
+# Secrets (repository locator_go):
+#   DEPLOY_SSH_HOST          — 87.232.65.52
+#   DEPLOY_SSH_USER          — root
+#   DEPLOY_SSH_KEY_BASE64    — base64 приватного ключа (см. /root/DEPLOY_SSH_KEY_BASE64.txt на сервере)
 # Optional variable: DEPLOY_SSH_PORT (default 22)
 
 name: Deploy to Main Environment
@@ -23,30 +23,38 @@ jobs:
 
       - name: Validate deploy secrets
         run: |
-          missing=0
-          for name in DEPLOY_SSH_HOST DEPLOY_SSH_USER DEPLOY_SSH_KEY; do
-            val="${{ secrets.DEPLOY_SSH_HOST }}"
-            case "$name" in
-              DEPLOY_SSH_HOST) val="${{ secrets.DEPLOY_SSH_HOST }}" ;;
-              DEPLOY_SSH_USER) val="${{ secrets.DEPLOY_SSH_USER }}" ;;
-              DEPLOY_SSH_KEY) val="${{ secrets.DEPLOY_SSH_KEY }}" ;;
-            esac
-            if [[ -z "$val" ]]; then
-              echo "::error::Secret $name is not set in locator_go repository settings"
-              missing=1
-            fi
-          done
-          if [[ "$missing" -eq 1 ]]; then
-            echo "Copy DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY from lctr_app repo secrets."
+          if [[ -z "${{ secrets.DEPLOY_SSH_HOST }}" ]]; then
+            echo "::error::DEPLOY_SSH_HOST is not set"
             exit 1
           fi
+          if [[ -z "${{ secrets.DEPLOY_SSH_USER }}" ]]; then
+            echo "::error::DEPLOY_SSH_USER is not set"
+            exit 1
+          fi
+          if [[ -z "${{ secrets.DEPLOY_SSH_KEY_BASE64 }}" && -z "${{ secrets.DEPLOY_SSH_KEY }}" ]]; then
+            echo "::error::Set DEPLOY_SSH_KEY_BASE64 (recommended) or DEPLOY_SSH_KEY"
+            exit 1
+          fi
+
+      - name: Prepare SSH key file
+        run: |
+          install -m 700 -d ~/.ssh
+          KEY_FILE="$RUNNER_TEMP/deploy_key.pem"
+          if [[ -n "${{ secrets.DEPLOY_SSH_KEY_BASE64 }}" ]]; then
+            echo "${{ secrets.DEPLOY_SSH_KEY_BASE64 }}" | base64 -d > "$KEY_FILE"
+          else
+            printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > "$KEY_FILE"
+          fi
+          chmod 600 "$KEY_FILE"
+          ssh-keygen -y -f "$KEY_FILE" >/dev/null
+          echo "DEPLOY_SSH_KEY_FILE=$KEY_FILE" >> "$GITHUB_ENV"
 
       - name: Deploy to Server
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.DEPLOY_SSH_HOST }}
           username: ${{ secrets.DEPLOY_SSH_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          key_path: ${{ env.DEPLOY_SSH_KEY_FILE }}
           port: ${{ vars.DEPLOY_SSH_PORT || '22' }}
           command_timeout: 20m
           script: |
