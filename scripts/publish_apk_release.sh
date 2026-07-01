@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 
 APK_SRC="${1:?Укажите путь к APK}"
 CHANGELOG="${2:-}"
-BASE_URL="${BASE_URL:-http://178.172.235.51:8080}"
+BASE_URL="${BASE_URL:-http://87.232.65.52:8080}"
 
 if [[ -d /var/www/locator_go/static/releases ]]; then
   DEFAULT_RELEASES="/var/www/locator_go/static/releases"

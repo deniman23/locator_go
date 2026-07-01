@@ -107,7 +107,6 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	locationRequestDAO := dao.NewLocationRequestDAO(dbConn)
 	locationRequestService := service.NewLocationRequestService(locationRequestDAO)
 	routingBase := os.Getenv("ROUTING_BASE_URL")
-	locationController := controllers.NewLocationController(locationService, locationRequestService, publisher, routingBase)
 	deviceCommandDAO := dao.NewDeviceCommandDAO(dbConn)
 	deviceReportDAO := dao.NewDeviceReportDAO(dbConn)
 	deviceCommandService := service.NewDeviceCommandService(deviceCommandDAO, locationRequestService)
@@ -126,13 +125,14 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	visitDAO := dao.NewVisitDAO(dbConn)
 	travelSegmentService := service.NewTravelSegmentService(locationDAO, checkpointService)
 	visitService := service.NewVisitService(visitDAO, travelSegmentService)
+	visitEventProcessor := service.NewVisitEventProcessor(checkpointService, visitService, locationDAO)
+	locationController := controllers.NewLocationController(locationService, locationRequestService, publisher, visitEventProcessor, routingBase)
 	checkpointController := controllers.NewCheckpointController(
-		checkpointService, locationService, visitService, publisher,
+		checkpointService, locationService, visitService, publisher, visitEventProcessor,
 	)
 	visitController := controllers.NewVisitController(visitService)
 
-	// EventController
-	eventController := controllers.NewEventController(publisher)
+	eventController := controllers.NewEventController(publisher, visitEventProcessor)
 
 	// User
 	userDAO := dao.NewUserDAO(dbConn)
@@ -152,14 +152,10 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 		userService,
 	)
 
-	// 6. Запуск background-потребителя сообщений
-	visitEventProcessor := service.NewVisitEventProcessor(checkpointService, visitService)
-	consumer := messaging.NewConsumer(rmqClient, queue.Name)
+	// 6. Восстановление зависших визитов по истории GPS (после простоя consumer и т.п.)
 	go func() {
-		if err := consumer.Consume(func(message []byte) error {
-			return visitEventProcessor.ProcessEvent(message)
-		}); err != nil {
-			log.Printf("Ошибка при потреблении сообщений: %v", err)
+		if err := visitEventProcessor.ReconcileActiveVisits(); err != nil {
+			log.Printf("ReconcileActiveVisits: %v", err)
 		}
 	}()
 

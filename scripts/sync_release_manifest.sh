@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APK_PATH="${1:?Укажите путь к APK}"
-BASE_URL="${BASE_URL:-http://178.172.235.51:8080}"
+BASE_URL="${BASE_URL:-http://87.232.65.52:8080}"
 RELEASES_DIR="$(dirname "$(realpath "$APK_PATH")")"
 MANIFEST="$RELEASES_DIR/manifest.json"
 APK_ABS="$(realpath "$APK_PATH")"
