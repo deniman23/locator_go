@@ -32,7 +32,7 @@ func WriteReleaseManifest(apkPath, manifestPath, baseURL, changelog string) (map
 		"package_name": meta.PackageName,
 		"filename":     filename,
 		"sha256":       sum,
-		"force":        false,
+		"force":        true,
 		"changelog":    changelog,
 		"url":          baseURL + "/static/releases/" + filename,
 	}
