@@ -1,3 +1,11 @@
+# Деплой backend/frontend на сервер после push в main.
+#
+# Secrets (repository locator_go — те же значения, что в lctr_app):
+#   DEPLOY_SSH_HOST   — 87.232.65.52
+#   DEPLOY_SSH_USER   — root
+#   DEPLOY_SSH_KEY    — приватный SSH-ключ (deploy key / server key)
+# Optional variable: DEPLOY_SSH_PORT (default 22)
+
 name: Deploy to Main Environment
 
 on:
@@ -13,6 +21,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate deploy secrets
+        run: |
+          missing=0
+          for name in DEPLOY_SSH_HOST DEPLOY_SSH_USER DEPLOY_SSH_KEY; do
+            val="${{ secrets.DEPLOY_SSH_HOST }}"
+            case "$name" in
+              DEPLOY_SSH_HOST) val="${{ secrets.DEPLOY_SSH_HOST }}" ;;
+              DEPLOY_SSH_USER) val="${{ secrets.DEPLOY_SSH_USER }}" ;;
+              DEPLOY_SSH_KEY) val="${{ secrets.DEPLOY_SSH_KEY }}" ;;
+            esac
+            if [[ -z "$val" ]]; then
+              echo "::error::Secret $name is not set in locator_go repository settings"
+              missing=1
+            fi
+          done
+          if [[ "$missing" -eq 1 ]]; then
+            echo "Copy DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY from lctr_app repo secrets."
+            exit 1
+          fi
+
       - name: Deploy to Server
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -24,4 +52,4 @@ jobs:
           script: |
             cd /root/locator_go
             git pull origin main
-            ./deploy.sh
+            docker compose up --build -d
