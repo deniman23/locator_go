@@ -44,12 +44,12 @@ services:
       BASE_URL: ${BASE_URL:-http://localhost:8080}
       GIN_MODE: ${GIN_MODE:-release}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
-      # OSRM-совместимый сервер (GET …/match/v1/driving/…), без завершающего /
-      ROUTING_BASE_URL: ${ROUTING_BASE_URL:-}
-      # Публичный router.project-osrm.org — не более ~10 точек на запрос (TooBig иначе). Свой OSRM: 50–80.
-      ROUTING_MATCH_CHUNK_SIZE: ${ROUTING_MATCH_CHUNK_SIZE:-}
-      # Метры поиска на точку (OSRM radiuses); для шумного GPS на публичном OSRM — 20–25
-      ROUTING_MATCH_RADIUS: ${ROUTING_MATCH_RADIUS:-}
+      # OSRM match (GET …/match/v1/driving/…), без завершающего /
+      # По умолчанию — публичный OSRM (работает сразу). Свой: http://osrm:5000 + profile osrm-local
+      ROUTING_BASE_URL: ${ROUTING_BASE_URL:-https://router.project-osrm.org}
+      # Публичный OSRM: не более ~10 точек на запрос. Свой OSRM: 50–80
+      ROUTING_MATCH_CHUNK_SIZE: ${ROUTING_MATCH_CHUNK_SIZE:-10}
+      ROUTING_MATCH_RADIUS: ${ROUTING_MATCH_RADIUS:-20}
 
   frontend:
     build:
@@ -78,6 +78,29 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    restart: unless-stopped
+
+  # Опционально: docker compose --profile osrm-local up -d (сначала ./scripts/setup_osrm.sh, ~15–30 мин)
+  osrm:
+    profiles:
+      - osrm-local
+    image: ghcr.io/project-osrm/osrm-backend
+    container_name: locator-osrm
+    command: osrm-routed --algorithm mld /data/belarus-latest.osrm
+    volumes:
+      - ./osrm-data:/data
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null 'http://127.0.0.1:5000/route/v1/driving/27.5615,53.9023;27.5715,53.9123?overview=false' || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
     restart: unless-stopped
 
   rabbitmq:

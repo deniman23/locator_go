@@ -67,6 +67,7 @@ func InitRoutes(
 			adminGroup.POST("/users/:id/commands", deviceController.PostAdminUserCommand)
 			adminGroup.POST("/releases/publish-update/:user_id", deviceController.PostPublishAppUpdate)
 			adminGroup.POST("/releases/sync-manifest", appReleaseController.PostSyncReleaseManifest)
+			adminGroup.POST("/locations/backfill-captured-at", locationController.PostBackfillCapturedAt)
 		}
 
 		// Группа маршрутов для работы с чекпоинтами.

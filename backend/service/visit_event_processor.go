@@ -112,7 +112,7 @@ func (vep *VisitEventProcessor) handleInside(userID, checkpointID int, activeVis
 	}
 
 	state.clearPendingEnter()
-	_, err := vep.VisitService.StartVisit(userID, checkpointID)
+	_, err := vep.VisitService.StartVisitAt(userID, checkpointID, now)
 	if err != nil {
 		log.Printf("[handleInside] Ошибка начала визита для userID=%d, checkpointID=%d: %v", userID, checkpointID, err)
 		return err
@@ -151,7 +151,7 @@ func (vep *VisitEventProcessor) handleOutside(userID, checkpointID int, activeVi
 		return nil
 	}
 
-	if err := vep.VisitService.EndVisit(activeVisit); err != nil {
+	if err := vep.VisitService.EndVisitAt(activeVisit, now); err != nil {
 		log.Printf("[handleOutside] Ошибка завершения визита userID=%d checkpointID=%d: %v",
 			userID, checkpointID, err)
 		return err

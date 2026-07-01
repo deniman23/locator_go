@@ -2,4 +2,5 @@
 backend/.env
 backend/logs/
 backend/static
+osrm-data/
 /.cursor

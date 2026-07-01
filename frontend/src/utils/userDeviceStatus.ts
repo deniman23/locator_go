@@ -28,9 +28,8 @@ export function healthFromResponse(data: {
     issues?: string[];
     healthy: boolean;
     report: Record<string, unknown>;
-}): UserDeviceStatus {
+}): Omit<UserDeviceStatus, 'gps' | 'ageSeconds'> {
     return {
-        gps: 'offline',
         healthy: data.healthy,
         lastReportAt: data.last_report_at,
         appVersion: data.app_version,

@@ -1,5 +1,19 @@
 import type { Location } from '../types/models';
 
+/** ~90 км/ч — выше считаем GPS-выбросом */
+const TRACK_MAX_SPEED_MPS = 25;
+/** Окно пакетной отправки офлайн-очереди */
+const TRACK_BATCH_WINDOW_MS = 10_000;
+/** Макс. скачок при пакетной отправке (м) */
+const TRACK_BATCH_MAX_JUMP_M = 250;
+/** Короткий интервал между точками */
+const TRACK_SHORT_GAP_MS = 2 * 60_000;
+/** Макс. скачок за короткий интервал (м) */
+const TRACK_SHORT_GAP_MAX_JUMP_M = 500;
+/** Макс. скачок за разумный интервал (после backfill офлайн-очереди) */
+const TRACK_ABSOLUTE_MAX_JUMP_M = 1500;
+const TRACK_ABSOLUTE_MAX_JUMP_MS = 45 * 60_000;
+
 /** Расстояние между двумя точками на сфере, метры */
 export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371000;
@@ -12,9 +26,86 @@ export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: 
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function locationTimeMs(loc: Location): number {
+    return locationEffectiveAtMs(loc);
+}
+
+/** Точка невозможна относительно предыдущей принятой. */
+export function isTrackOutlierFromPrev(prev: Location, curr: Location): boolean {
+    const dist = haversineMeters(prev.latitude, prev.longitude, curr.latitude, curr.longitude);
+    const tPrev = locationTimeMs(prev);
+    const tCurr = locationTimeMs(curr);
+    if (!Number.isFinite(tPrev) || !Number.isFinite(tCurr)) return false;
+    const dtMs = tCurr - tPrev;
+    if (dtMs < 0) return true;
+    if (dtMs <= TRACK_BATCH_WINDOW_MS) return dist > TRACK_BATCH_MAX_JUMP_M;
+    if (dtMs > 0 && dtMs <= TRACK_ABSOLUTE_MAX_JUMP_MS && dist > TRACK_ABSOLUTE_MAX_JUMP_M) return true;
+    if (dtMs <= TRACK_SHORT_GAP_MS) return dist > TRACK_SHORT_GAP_MAX_JUMP_M;
+    if (dtMs > 0) return dist / (dtMs / 1000) > TRACK_MAX_SPEED_MPS;
+    return dist > TRACK_BATCH_MAX_JUMP_M;
+}
+
+/**
+ * Убирает GPS-выбросы (офлайн-очередь, сетевая геолокация без A-GPS).
+ * Оставляет физически возможный трек.
+ */
+export function filterTrackOutliers(locations: Location[]): Location[] {
+    const sorted = normalizeLocations(locations);
+    if (sorted.length <= 1) return sorted;
+    const out: Location[] = [sorted[0]];
+    for (let i = 1; i < sorted.length; i++) {
+        const curr = sorted[i];
+        const prev = out[out.length - 1];
+        const baseline = outlierBaseline(out);
+        if (isTrackOutlierFromPrev(prev, curr)) {
+            if (
+                !baseline ||
+                haversineMeters(baseline.latitude, baseline.longitude, curr.latitude, curr.longitude) >
+                    TRACK_BATCH_MAX_JUMP_M
+            ) {
+                continue;
+            }
+        } else if (baseline && isTrackOutlierFromPrev(baseline, curr)) {
+            continue;
+        }
+        out.push(curr);
+    }
+    return out;
+}
+
+/** Последняя надёжная точка в уже принятом треке (пропуск цепочки выбросов). */
+function outlierBaseline(kept: Location[]): Location | null {
+    if (kept.length === 0) return null;
+    let prev = kept[kept.length - 1];
+    for (let n = 0; n < 8; n++) {
+        const idx = kept.lastIndexOf(prev);
+        if (idx <= 0) break;
+        const grand = kept[idx - 1];
+        if (isTrackOutlierFromPrev(grand, prev)) {
+            prev = grand;
+            continue;
+        }
+        break;
+    }
+    return prev;
+}
+
+/** Точки для линии трека: без выбросов, стоянки — одна точка на группу. */
+export function buildCleanTrackPolyline(
+    locations: Location[],
+    stationaryRadiusM: number
+): [number, number][] {
+    const cleaned = filterTrackOutliers(locations);
+    if (cleaned.length === 0) return [];
+    if (cleaned.length === 1) return [[cleaned[0].latitude, cleaned[0].longitude]];
+    return buildLocationClusters(cleaned, stationaryRadiusM).map(
+        c => [c.centerLat, c.centerLng] as [number, number]
+    );
+}
+
 export function sortLocationsByCreatedAsc(locations: Location[]): Location[] {
     return [...locations].sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        (a, b) => locationEffectiveAtMs(a) - locationEffectiveAtMs(b)
     );
 }
 
@@ -130,6 +221,61 @@ export function minskLocalToMs(value: string): number {
 
 export function compareMinskDateTimes(from: string, to: string): number {
     return minskLocalToMs(from) - minskLocalToMs(to);
+}
+
+/** Конец интервала с учётом полной минуты (как на бэкенде). */
+export function periodEndInclusiveMs(to: string): number {
+    const ms = minskLocalToMs(to);
+    if (!Number.isFinite(ms)) return NaN;
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(to)) {
+        return ms + 59_999;
+    }
+    return ms;
+}
+
+export function locationCreatedAtMs(value: string | undefined): number {
+    if (!value) return NaN;
+    return minskLocalToMs(value);
+}
+
+/** Время для трека и периода: captured_at или created_at. */
+export function locationEffectiveAtMs(loc: Location): number {
+    const captured = loc.captured_at ? locationCreatedAtMs(loc.captured_at) : NaN;
+    if (Number.isFinite(captured)) return captured;
+    return locationCreatedAtMs(loc.created_at);
+}
+
+const MIN_VALID_LOCATION_MS = Date.UTC(2020, 0, 1);
+
+/** Точка с валидными координатами и нормальной меткой времени (не «архив»/синтетика). */
+export function isValidMapLocation(loc: Location): boolean {
+    const lat = Number(loc.latitude);
+    const lng = Number(loc.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+    const t = locationEffectiveAtMs(loc);
+    if (!Number.isFinite(t) || t < MIN_VALID_LOCATION_MS) return false;
+    // Синтетические «значимые» точки с сервера без id
+    if (loc.id === 0) return false;
+    return true;
+}
+
+/** Оставляет только точки, попадающие в интервал (Europe/Minsk). */
+export function filterLocationsInPeriod(
+    locations: Location[],
+    from: string,
+    to: string
+): Location[] {
+    if (!from || !to) return locations.filter(isValidMapLocation);
+    const fromMs = minskLocalToMs(from);
+    const toMs = periodEndInclusiveMs(to);
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) {
+        return locations.filter(isValidMapLocation);
+    }
+    return locations.filter(loc => {
+        if (!isValidMapLocation(loc)) return false;
+        const t = locationEffectiveAtMs(loc);
+        return t >= fromMs && t <= toMs;
+    });
 }
 
 /** «Сейчас» и N часов назад в формате API (Europe/Minsk). */

@@ -19,10 +19,13 @@ import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 import { formatDateTime, formatPeriodRange } from '../utils/dateFormat';
 import {
+    buildCleanTrackPolyline,
     buildLocationClusters,
     compareMinskDateTimes,
+    filterLocationsInPeriod,
+    filterTrackOutliers,
+    isValidMapLocation,
     minskDayBounds,
-    sortLocationsByCreatedAsc,
     type LocationCluster,
 } from '../utils/locationTrack';
 
@@ -90,7 +93,7 @@ const MapUpdater = ({
     return null;
 };
 
-type TrackMode = 'none' | 'polyline' | 'polyline_only';
+type TrackMode = 'none' | 'polyline';
 type MarkerMode = 'all' | 'merged5m';
 
 const MapComponent: React.FC = () => {
@@ -110,20 +113,18 @@ const MapComponent: React.FC = () => {
     const [fromTime, setFromTime] = useState(day0.from);
     const [toTime, setToTime] = useState(day0.to);
 
-    const [useRawLocations, setUseRawLocations] = useState(true);
-    const [markerMode, setMarkerMode] = useState<MarkerMode>('merged5m');
+    const [markerMode, setMarkerMode] = useState<MarkerMode>('all');
     const [trackMode, setTrackMode] = useState<TrackMode>('polyline');
     const [useRoadMatch, setUseRoadMatch] = useState(false);
     const [roadCoords, setRoadCoords] = useState<[number, number][] | null>(null);
     const [roadMatchNote, setRoadMatchNote] = useState<string | null>(null);
-    const [autoRefresh, setAutoRefresh] = useState(false);
     const [routeLoading, setRouteLoading] = useState(false);
     /** Увеличивается по кнопке «Получить маршрут», чтобы заново запросить линию OSRM */
     const [matchedRouteNonce, setMatchedRouteNonce] = useState(0);
 
     const filtersRef = useRef({ fromTime: day0.from, toTime: day0.to });
     const apiKeyRef = useRef<string | null>(apiKey);
-    const useRawRef = useRef(useRawLocations);
+    const fetchGenerationRef = useRef(0);
     const fetchDataRef = useRef<(() => Promise<void>) | null>(null);
 
     useLayoutEffect(() => {
@@ -133,10 +134,6 @@ const MapComponent: React.FC = () => {
     useEffect(() => {
         apiKeyRef.current = apiKey;
     }, [apiKey]);
-
-    useEffect(() => {
-        useRawRef.current = useRawLocations;
-    }, [useRawLocations]);
 
     useEffect(() => {
         if (!apiKey) return;
@@ -152,10 +149,22 @@ const MapComponent: React.FC = () => {
     const fetchData = useCallback(async () => {
         const currentApiKey = apiKeyRef.current;
         const currentFilters = filtersRef.current;
-        const raw = useRawRef.current;
+        const fetchGen = ++fetchGenerationRef.current;
 
         if (!currentApiKey) {
             setError('Ошибка авторизации: отсутствует API ключ');
+            setLoading(false);
+            return;
+        }
+
+        if (!currentFilters.fromTime || !currentFilters.toTime) {
+            setError('Укажите период (начало и конец)');
+            setLoading(false);
+            return;
+        }
+
+        if (compareMinskDateTimes(currentFilters.fromTime, currentFilters.toTime) >= 0) {
+            setError('Дата начала должна быть раньше даты окончания');
             setLoading(false);
             return;
         }
@@ -165,26 +174,23 @@ const MapComponent: React.FC = () => {
             setError(null);
 
             const cpRes = await checkpointApi.getAll(currentApiKey);
+            if (fetchGen !== fetchGenerationRef.current) return;
             setCheckpoints(cpRes.data);
 
-            let locRes;
-            if (currentFilters.fromTime && currentFilters.toTime) {
-                if (compareMinskDateTimes(currentFilters.fromTime, currentFilters.toTime) >= 0) {
-                    setError('Дата начала должна быть раньше даты окончания');
-                    setLoading(false);
-                    return;
-                }
-                locRes = await locationApi.getBetween(
-                    currentFilters.fromTime,
-                    currentFilters.toTime,
-                    currentApiKey,
-                    { raw }
-                );
-            } else {
-                locRes = await locationApi.getAll(currentApiKey, { raw });
-            }
+            const locRes = await locationApi.getBetween(
+                currentFilters.fromTime,
+                currentFilters.toTime,
+                currentApiKey,
+                { raw: true }
+            );
+            if (fetchGen !== fetchGenerationRef.current) return;
 
-            setUserLocations(locRes.data || []);
+            const locs = filterLocationsInPeriod(
+                locRes.data || [],
+                currentFilters.fromTime,
+                currentFilters.toTime
+            );
+            setUserLocations(locs);
 
             if (
                 !localStorage.getItem('mapPosition') &&
@@ -240,14 +246,6 @@ const MapComponent: React.FC = () => {
     }, [searchParams, setSearchParams]);
 
     useEffect(() => {
-        if (!autoRefresh) return;
-        const interval = setInterval(() => {
-            fetchDataRef.current?.();
-        }, 10000);
-        return () => clearInterval(interval);
-    }, [autoRefresh]);
-
-    useEffect(() => {
         if (selectedUserIds.length !== 1 && useRoadMatch) {
             setUseRoadMatch(false);
         }
@@ -267,7 +265,7 @@ const MapComponent: React.FC = () => {
             !apiKey
         ) {
             if (useRoadMatch && trackMode === 'none' && selectedUserIds.length === 1) {
-                setRoadMatchNote('Включите линию трека («Точки + трек» или «Только трек»), иначе маршрут по дорогам не строится.');
+                setRoadMatchNote('Включите линию трека («Точки + трек»), иначе маршрут по дорогам не строится.');
             }
             return () => {
                 cancelled = true;
@@ -323,22 +321,44 @@ const MapComponent: React.FC = () => {
     };
     const initialPosition = getSavedPosition();
 
-    const visibleLocations = useMemo(
-        () => userLocations.filter(loc => selectedUserIds.includes(loc.user_id)),
-        [userLocations, selectedUserIds]
-    );
+    const visibleLocations = useMemo(() => {
+        let locs = userLocations;
+        if (fromTime && toTime && compareMinskDateTimes(fromTime, toTime) < 0) {
+            locs = filterLocationsInPeriod(locs, fromTime, toTime);
+        } else {
+            locs = locs.filter(isValidMapLocation);
+        }
+        return locs.filter(loc => selectedUserIds.includes(loc.user_id));
+    }, [userLocations, selectedUserIds, fromTime, toTime]);
+
+    /** Без GPS-выбросов (офлайн-очередь, сетевая геолокация). */
+    const trackLocations = useMemo(() => {
+        const byUser = new Map<number, Location[]>();
+        for (const loc of visibleLocations) {
+            const arr = byUser.get(loc.user_id) ?? [];
+            arr.push(loc);
+            byUser.set(loc.user_id, arr);
+        }
+        const out: Location[] = [];
+        for (const locs of byUser.values()) {
+            out.push(...filterTrackOutliers(locs));
+        }
+        return out;
+    }, [visibleLocations]);
+
+    const hiddenOutlierCount = visibleLocations.length - trackLocations.length;
 
     const clustersByUser = useMemo(() => {
         const m = new Map<number, LocationCluster[]>();
         for (const uid of selectedUserIds) {
-            const locs = visibleLocations.filter(l => l.user_id === uid);
+            const locs = trackLocations.filter(l => l.user_id === uid);
             m.set(uid, buildLocationClusters(locs, STATIONARY_CLUSTER_RADIUS_M));
         }
         return m;
-    }, [visibleLocations, selectedUserIds]);
+    }, [trackLocations, selectedUserIds]);
 
     const displayMarkers = useMemo((): MapMarkerPoint[] => {
-        if (markerMode === 'all') return visibleLocations;
+        if (markerMode === 'all') return trackLocations;
         const out: MapMarkerPoint[] = [];
         for (const clusters of clustersByUser.values()) {
             for (const cluster of clusters) {
@@ -361,24 +381,14 @@ const MapComponent: React.FC = () => {
     const gpsPolylinesByUser = useMemo(() => {
         const m = new Map<number, [number, number][]>();
         for (const uid of selectedUserIds) {
-            const locs = visibleLocations.filter(l => l.user_id === uid);
-            if (markerMode === 'all') {
-                const sorted = sortLocationsByCreatedAsc(locs);
-                if (sorted.length >= 2) {
-                    m.set(uid, sorted.map(l => [l.latitude, l.longitude] as [number, number]));
-                }
-                continue;
-            }
-            const clusters = clustersByUser.get(uid) || [];
-            if (clusters.length >= 2) {
-                m.set(
-                    uid,
-                    clusters.map(c => [c.centerLat, c.centerLng] as [number, number])
-                );
+            const locs = trackLocations.filter(l => l.user_id === uid);
+            const line = buildCleanTrackPolyline(locs, STATIONARY_CLUSTER_RADIUS_M);
+            if (line.length >= 2) {
+                m.set(uid, line);
             }
         }
         return m;
-    }, [visibleLocations, selectedUserIds, markerMode, clustersByUser]);
+    }, [trackLocations, selectedUserIds]);
 
     const extraLatLngForBounds = useMemo(() => {
         const pts: [number, number][] = [];
@@ -393,8 +403,8 @@ const MapComponent: React.FC = () => {
         return pts;
     }, [trackMode, gpsPolylinesByUser, useRoadMatch, roadCoords]);
 
-    const showMarkers = trackMode !== 'polyline_only';
-    const showGpsTrack = trackMode !== 'none';
+    const showMarkers = true;
+    const showGpsTrack = trackMode === 'polyline';
     const filteredUsersList = useMemo(() => {
         const q = userSearch.trim().toLowerCase();
         if (!q) return allUsers;
@@ -402,6 +412,7 @@ const MapComponent: React.FC = () => {
     }, [allUsers, userSearch]);
 
     const applyPeriod = () => {
+        setShouldFitBounds(true);
         void fetchData();
     };
 
@@ -552,19 +563,6 @@ const MapComponent: React.FC = () => {
                         <label className="map-control-row">
                             <input
                                 type="checkbox"
-                                checked={useRawLocations}
-                                onChange={e => {
-                                    const v = e.target.checked;
-                                    useRawRef.current = v;
-                                    setUseRawLocations(v);
-                                    void fetchData();
-                                }}
-                            />
-                            <span>Все точки (без серверного упрощения)</span>
-                        </label>
-                        <label className="map-control-row">
-                            <input
-                                type="checkbox"
                                 checked={useRoadMatch}
                                 disabled={selectedUserIds.length !== 1}
                                 onChange={e => setUseRoadMatch(e.target.checked)}
@@ -619,24 +617,7 @@ const MapComponent: React.FC = () => {
                                 />
                                 <span>Точки + трек</span>
                             </label>
-                            <label className="map-control-row">
-                                <input
-                                    type="radio"
-                                    name="trackMode"
-                                    checked={trackMode === 'polyline_only'}
-                                    onChange={() => setTrackMode('polyline_only')}
-                                />
-                                <span>Только трек</span>
-                            </label>
                         </div>
-                        <label className="map-control-row">
-                            <input
-                                type="checkbox"
-                                checked={autoRefresh}
-                                onChange={e => setAutoRefresh(e.target.checked)}
-                            />
-                            <span>Обновлять каждые 10 с</span>
-                        </label>
                     </div>
                 </div>
             </aside>
@@ -718,14 +699,15 @@ const MapComponent: React.FC = () => {
                     )}
 
                     {showMarkers &&
-                        displayMarkers.map(loc => {
+                        displayMarkers.map((loc, index) => {
                             const color = getUserColor(loc.user_id);
                             const userName =
                                 allUsers.find(u => u.id === loc.user_id)?.name || `ID: ${loc.user_id}`;
                             const isStationary = (loc.clusterSize ?? 0) > 1;
+                            const markerKey = `${loc.user_id}-${loc.id}-${loc.created_at}-${loc.latitude}-${loc.longitude}-${index}`;
                             return (
                                 <CircleMarker
-                                    key={`${markerMode}-${loc.id}-${loc.clusterSize ?? 0}`}
+                                    key={markerKey}
                                     center={[loc.latitude, loc.longitude]}
                                     radius={isStationary ? 14 : 8}
                                     pathOptions={{
@@ -751,11 +733,23 @@ const MapComponent: React.FC = () => {
                                                     </div>
                                                 </>
                                             ) : (
-                                                <div>{formatDateTime(loc.created_at)}</div>
+                                                <>
+                                                    <div>{formatDateTime(loc.captured_at ?? loc.created_at)}</div>
+                                                    {loc.captured_at &&
+                                                        loc.captured_at !== loc.created_at && (
+                                                            <div className="popup-meta">
+                                                                Получено сервером:{' '}
+                                                                {formatDateTime(loc.created_at)}
+                                                            </div>
+                                                        )}
+                                                </>
                                             )}
                                             <div className="popup-coords">
                                                 {loc.latitude.toFixed(6)}, {loc.longitude.toFixed(6)}
                                             </div>
+                                            {loc.id > 0 && (
+                                                <div className="popup-id">Запись #{loc.id}</div>
+                                            )}
                                         </div>
                                     </Popup>
                                 </CircleMarker>
@@ -774,7 +768,11 @@ const MapComponent: React.FC = () => {
                         </span>
                         <span className="status-item">
                             На карте: <strong>{showMarkers ? displayMarkers.length : 0}</strong> / всего выбр.:{' '}
-                            <strong>{visibleLocations.length}</strong> (загр. {userLocations.length})
+                            <strong>{trackLocations.length}</strong>
+                            {hiddenOutlierCount > 0 && (
+                                <> (скрыто выбросов: {hiddenOutlierCount})</>
+                            )}{' '}
+                            (загр. {userLocations.length})
                         </span>
                         <span className="status-item map-status-period">
                             {fromTime && toTime ? (

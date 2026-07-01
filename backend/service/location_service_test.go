@@ -11,7 +11,7 @@ func TestSortLocationsByCreatedAt(t *testing.T) {
 	t1 := time.Date(2026, 1, 2, 10, 0, 0, 0, time.UTC)
 	t0 := time.Date(2026, 1, 2, 9, 0, 0, 0, time.UTC)
 	locs := []models.Location{{ID: 2, CreatedAt: t1}, {ID: 1, CreatedAt: t0}}
-	sortLocationsByCreatedAt(locs)
+	sortLocationsByEffectiveAt(locs)
 	if locs[0].ID != 1 || locs[1].ID != 2 {
 		t.Fatalf("unexpected order: %#v", locs)
 	}

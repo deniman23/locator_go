@@ -264,11 +264,6 @@ func (dc *DeviceController) PostPublishAppUpdate(ctx *gin.Context) {
 		return
 	}
 
-	if _, err := dc.ReleaseController.SyncManifestFromReleaseAPK(); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось синхронизировать manifest с APK: " + err.Error()})
-		return
-	}
-
 	payload, err := dc.ReleaseController.ManifestForAppUpdate()
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Манифест релиза недоступен"})

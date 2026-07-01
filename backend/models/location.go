@@ -22,7 +22,10 @@ type Location struct {
 	// Source — periodic | on_demand.
 	Source string `gorm:"size:20" json:"source,omitempty"`
 
-	// CreatedAt — время создания записи.
+	// CapturedAt — момент фиксации GPS на устройстве (офлайн-очередь); если пусто — created_at.
+	CapturedAt *time.Time `json:"captured_at,omitempty"`
+
+	// CreatedAt — время приёма записи сервером.
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 
 	// UpdatedAt — время последнего обновления записи.
@@ -47,4 +50,15 @@ func (loc *Location) UpdateCoordinates(lat, lon float64) {
 	loc.Latitude = lat
 	loc.Longitude = lon
 	loc.UpdatedAt = time.Now()
+}
+
+// EffectiveAt — время для трека и визитов: captured_at или created_at.
+func (loc *Location) EffectiveAt() time.Time {
+	if loc != nil && loc.CapturedAt != nil && !loc.CapturedAt.IsZero() {
+		return loc.CapturedAt.UTC()
+	}
+	if loc != nil && !loc.CreatedAt.IsZero() {
+		return loc.CreatedAt.UTC()
+	}
+	return time.Time{}
 }

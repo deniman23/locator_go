@@ -47,20 +47,104 @@ func (svc *LocationService) GetLocation(userID int) (*models.Location, error) {
 	return location, nil
 }
 
+// UserExists — есть ли пользователь с таким id.
+func (svc *LocationService) UserExists(userID int) (bool, error) {
+	return svc.DAO.UserExists(userID)
+}
+
 // CreateLocation создаёт новую запись о местоположении без обновления существующей.
-func (svc *LocationService) CreateLocation(userID int, lat, lon float64, requestID, source string) (*models.Location, error) {
-	log.Printf("[CreateLocation] Создание записи местоположения: userID=%d, Latitude=%.6f, Longitude=%.6f, source=%s", userID, lat, lon, source)
+// capturedAt — момент фиксации на устройстве (офлайн-очередь); nil — только created_at сервера.
+// skipped=true — точка отброшена как GPS-выброс (очередь офлайн / пакетная отправка).
+func (svc *LocationService) CreateLocation(
+	userID int, lat, lon float64, requestID, source string, capturedAt *time.Time,
+) (*models.Location, bool, error) {
+	log.Printf("[CreateLocation] Создание записи: userID=%d, lat=%.6f, lon=%.6f, source=%s, captured_at=%v",
+		userID, lat, lon, source, capturedAt)
 	newLocation := models.NewLocation(userID, lat, lon)
 	newLocation.RequestID = requestID
 	newLocation.Source = source
-	if err := svc.DAO.Create(newLocation); err != nil {
-		log.Printf("[CreateLocation] Ошибка при создании записи для userID=%d: %v", userID, err)
-		return nil, err
+	if capturedAt != nil {
+		t := capturedAt.UTC()
+		newLocation.CapturedAt = &t
 	}
 
-	log.Printf("[CreateLocation] Запись успешно создана для userID=%d: Latitude=%.6f, Longitude=%.6f, CreatedAt=%s",
-		userID, lat, lon, svc.toMinskTime(newLocation.CreatedAt))
-	return newLocation, nil
+	effectiveAt := newLocation.EffectiveAt()
+
+	// On-demand с request_id всегда сохраняем — это явный запрос координат.
+	if requestID == "" {
+		prev, _ := svc.DAO.GetPreviousByEffectiveTime(userID, effectiveAt)
+		baseline := svc.outlierBaseline(userID, effectiveAt)
+		if prev != nil && IsTrackOutlierFromPrev(*prev, *newLocation) {
+			if baseline == nil || haversineDistanceM(
+				baseline.Latitude, baseline.Longitude,
+				newLocation.Latitude, newLocation.Longitude,
+			) > trackBatchMaxJumpM {
+				log.Printf("[CreateLocation] Пропуск выброса GPS для userID=%d: %.6f,%.6f",
+					userID, lat, lon)
+				return nil, true, nil
+			}
+			log.Printf("[CreateLocation] Точка userID=%d принята как возврат к надёжной позиции", userID)
+		} else if baseline != nil && IsTrackOutlierFromPrev(*baseline, *newLocation) {
+			log.Printf("[CreateLocation] Пропуск выброса GPS для userID=%d: %.6f,%.6f (база %.6f,%.6f)",
+				userID, lat, lon, baseline.Latitude, baseline.Longitude)
+			return nil, true, nil
+		}
+	}
+
+	if err := svc.DAO.Create(newLocation); err != nil {
+		log.Printf("[CreateLocation] Ошибка при создании записи для userID=%d: %v", userID, err)
+		return nil, false, err
+	}
+
+	log.Printf("[CreateLocation] Запись создана userID=%d: effective=%s, received=%s",
+		userID, svc.toMinskTime(effectiveAt), svc.toMinskTime(newLocation.CreatedAt))
+	return newLocation, false, nil
+}
+
+const (
+	capturedAtMaxFutureSkew = 5 * time.Minute
+	capturedAtMaxAge        = 90 * 24 * time.Hour
+)
+
+// ParseCapturedAt парсит RFC3339 или локальное время Минска (как в query периода).
+func (svc *LocationService) ParseCapturedAt(s string) (*time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	t, err := svc.parseLocationQueryTime(s)
+	if err != nil {
+		return nil, fmt.Errorf("captured_at: %w", err)
+	}
+	t = t.UTC()
+	now := time.Now().UTC()
+	if t.After(now.Add(capturedAtMaxFutureSkew)) {
+		return nil, fmt.Errorf("captured_at не может быть в будущем")
+	}
+	if t.Before(now.Add(-capturedAtMaxAge)) {
+		return nil, fmt.Errorf("captured_at слишком старый (более 90 дней)")
+	}
+	return &t, nil
+}
+
+// outlierBaseline — последняя надёжная точка до before (пропускает цепочку выбросов).
+func (svc *LocationService) outlierBaseline(userID int, before time.Time) *models.Location {
+	prev, err := svc.DAO.GetPreviousByEffectiveTime(userID, before)
+	if err != nil || prev == nil {
+		return nil
+	}
+	for i := 0; i < 8; i++ {
+		grand, err := svc.DAO.GetPreviousByEffectiveTime(userID, prev.EffectiveAt())
+		if err != nil || grand == nil {
+			break
+		}
+		if IsTrackOutlierFromPrev(*grand, *prev) {
+			prev = grand
+			continue
+		}
+		break
+	}
+	return prev
 }
 
 // GetLocations возвращает только значимые локации для отображения на карте.
@@ -135,10 +219,10 @@ func (svc *LocationService) locationRangeForDB(fromStr, toStr string) (time.Time
 	return from.UTC(), to.UTC(), nil
 }
 
-// sortLocationsByCreatedAt сортирует срез по возрастанию created_at (на месте).
-func sortLocationsByCreatedAt(locations []models.Location) {
+// sortLocationsByEffectiveAt сортирует срез по времени фиксации (на месте).
+func sortLocationsByEffectiveAt(locations []models.Location) {
 	sort.Slice(locations, func(i, j int) bool {
-		return locations[i].CreatedAt.Before(locations[j].CreatedAt)
+		return locations[i].EffectiveAt().Before(locations[j].EffectiveAt())
 	})
 }
 
@@ -148,7 +232,7 @@ func (svc *LocationService) GetLocationsRaw() ([]models.Location, error) {
 	if err != nil {
 		return nil, err
 	}
-	sortLocationsByCreatedAt(allLocations)
+	sortLocationsByEffectiveAt(allLocations)
 	return allLocations, nil
 }
 
@@ -162,7 +246,7 @@ func (svc *LocationService) GetLocationsBetweenRaw(fromStr, toStr string) ([]mod
 	if err != nil {
 		return nil, err
 	}
-	sortLocationsByCreatedAt(all)
+	sortLocationsByEffectiveAt(all)
 	return all, nil
 }
 
@@ -199,7 +283,7 @@ func (svc *LocationService) filterSignificantLocations(allLocations []models.Loc
 
 	for userID, locations := range userLocations {
 		sort.Slice(locations, func(i, j int) bool {
-			return locations[i].CreatedAt.Before(locations[j].CreatedAt)
+			return locations[i].EffectiveAt().Before(locations[j].EffectiveAt())
 		})
 
 		// Пытаемся найти кластеры.
@@ -254,7 +338,7 @@ func (svc *LocationService) getRepresentativePoints(locations []models.Location)
 		)
 
 		// Расчёт времени между точками.
-		timeDiff := current.CreatedAt.Sub(lastAdded.CreatedAt)
+		timeDiff := current.EffectiveAt().Sub(lastAdded.EffectiveAt())
 
 		// Условия для добавления точки:
 		// 1. Значительное перемещение (более 500 метров)
@@ -312,8 +396,8 @@ func (svc *LocationService) clusterLocations(
 		distance := svc.haversineDistance(loc.Latitude, loc.Longitude, centerLat, centerLon)
 
 		// Проверяем временной разрыв (если больше часа - новый кластер).
-		lastTime := currentCluster[len(currentCluster)-1].CreatedAt
-		timeDiff := loc.CreatedAt.Sub(lastTime)
+		lastTime := currentCluster[len(currentCluster)-1].EffectiveAt()
+		timeDiff := loc.EffectiveAt().Sub(lastTime)
 
 		if distance <= maxDistance && timeDiff <= time.Hour {
 			// Добавляем в текущий кластер.
@@ -348,8 +432,8 @@ func (svc *LocationService) getRepresentativeLocation(
 	}
 
 	// Проверяем длительность нахождения.
-	firstTime := cluster[0].CreatedAt
-	lastTime := cluster[len(cluster)-1].CreatedAt
+	firstTime := cluster[0].EffectiveAt()
+	lastTime := cluster[len(cluster)-1].EffectiveAt()
 	duration := lastTime.Sub(firstTime)
 
 	if duration < minDuration {
@@ -361,6 +445,7 @@ func (svc *LocationService) getRepresentativeLocation(
 
 	// Возвращаем представительную точку с усредненными координатами.
 	return &models.Location{
+		ID:        cluster[0].ID,
 		UserID:    cluster[0].UserID,
 		Latitude:  centerLat,
 		Longitude: centerLon,

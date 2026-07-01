@@ -65,9 +65,11 @@ export const locationApi = {
             longitude: number;
             request_id?: string;
             source?: 'periodic' | 'on_demand';
+            /** RFC3339 или YYYY-MM-DDTHH:mm (Europe/Minsk) — время фиксации на устройстве */
+            captured_at?: string;
         },
         apiKey?: string
-    ) => api.post<Location>('/location', location, withApiKey(apiKey)),
+    ) => api.post<Location | { skipped: boolean; reason: string }>('/location', location, withApiKey(apiKey)),
 
     requestOnDemand: (userId: number, apiKey?: string) =>
         api.post<{ request_id: string; status: string; user_id: number }>(
@@ -87,7 +89,28 @@ export const locationApi = {
         api.get<{ coordinates: [number, number][] }>('/location/match-route', {
             ...withApiKey(apiKey),
             params: { user_id: userId, from, to }
-        })
+        }),
+
+    /** Backfill captured_at для старых точек (офлайн без timestamp в БД) */
+    backfillCapturedAt: (
+        userId: number,
+        apiKey?: string,
+        opts?: { dryRun?: boolean; intervalSeconds?: number }
+    ) =>
+        api.post<{ users_processed: number; updated: number; bursts: number; skipped: number }>(
+            '/admin/locations/backfill-captured-at',
+            {},
+            {
+                ...withApiKey(apiKey),
+                params: {
+                    user_id: userId,
+                    ...(opts?.dryRun ? { dry_run: 'true' } : {}),
+                    ...(opts?.intervalSeconds != null
+                        ? { interval_seconds: opts.intervalSeconds }
+                        : {}),
+                },
+            }
+        ),
 };
 
 export const deviceApi = {

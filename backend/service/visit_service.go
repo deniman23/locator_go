@@ -37,42 +37,51 @@ func (vs *VisitService) GetActiveVisit(userID int, checkpointID int) (*models.Vi
 
 // StartVisit начинается новый визит.
 func (vs *VisitService) StartVisit(userID int, checkpointID int) (*models.Visit, error) {
-	log.Printf("[StartVisit] Начало визита для userID=%d, checkpointID=%d", userID, checkpointID)
+	return vs.StartVisitAt(userID, checkpointID, time.Now().UTC())
+}
+
+// StartVisitAt начинает визит с указанным временем (в т.ч. из captured_at офлайн-точки).
+func (vs *VisitService) StartVisitAt(userID int, checkpointID int, at time.Time) (*models.Visit, error) {
+	log.Printf("[StartVisitAt] userID=%d, checkpointID=%d, at=%s", userID, checkpointID, at.UTC())
 	visit := &models.Visit{
 		UserID:       userID,
 		CheckpointID: checkpointID,
-		StartAt:      time.Now().UTC(),
+		StartAt:      at.UTC(),
 	}
 	err := vs.DAO.Create(visit)
 	if err != nil {
-		log.Printf("[StartVisit] Ошибка создания визита для userID=%d, checkpointID=%d: %v", userID, checkpointID, err)
+		log.Printf("[StartVisitAt] Ошибка создания визита: %v", err)
 		return nil, err
 	}
-	log.Printf("[StartVisit] Визит успешно начат для userID=%d, checkpointID=%d, VisitID=%d", userID, checkpointID, visit.ID)
+	log.Printf("[StartVisitAt] Визит начат VisitID=%d", visit.ID)
 	return visit, nil
 }
 
 // EndVisit завершает активный визит, фиксируя время окончания и вычисляя длительность.
 func (vs *VisitService) EndVisit(visit *models.Visit) error {
-	log.Printf("[EndVisit] Завершение визита: userID=%d, checkpointID=%d, VisitID=%d",
-		visit.UserID, visit.CheckpointID, visit.ID)
+	return vs.EndVisitAt(visit, time.Now().UTC())
+}
 
-	// Приводим обе временные метки к UTC, чтобы избежать проблем с часовыми поясами.
-	nowUTC := time.Now().UTC()
+// EndVisitAt завершает визит в указанное время (в т.ч. captured_at офлайн-точки).
+func (vs *VisitService) EndVisitAt(visit *models.Visit, at time.Time) error {
+	log.Printf("[EndVisitAt] userID=%d, checkpointID=%d, VisitID=%d, at=%s",
+		visit.UserID, visit.CheckpointID, visit.ID, at.UTC())
+
+	endUTC := at.UTC()
 	startUTC := visit.StartAt.UTC()
+	if endUTC.Before(startUTC) {
+		endUTC = startUTC
+	}
 
-	visit.EndAt = &nowUTC
-	// Расчет длительности в секундах без дробной части.
-	visit.Duration = int(nowUTC.Sub(startUTC).Seconds())
+	visit.EndAt = &endUTC
+	visit.Duration = int(endUTC.Sub(startUTC).Seconds())
 
 	err := vs.DAO.Update(visit)
 	if err != nil {
-		log.Printf("[EndVisit] Ошибка завершения визита для userID=%d, checkpointID=%d, VisitID=%d: %v",
-			visit.UserID, visit.CheckpointID, visit.ID, err)
+		log.Printf("[EndVisitAt] Ошибка: %v", err)
 		return err
 	}
-	log.Printf("[EndVisit] Визит успешно завершен: userID=%d, checkpointID=%d, VisitID=%d, Длительность=%d секунд",
-		visit.UserID, visit.CheckpointID, visit.ID, visit.Duration)
+	log.Printf("[EndVisitAt] Визит завершён, длительность=%d с", visit.Duration)
 	return nil
 }
 

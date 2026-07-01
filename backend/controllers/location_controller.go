@@ -5,7 +5,9 @@ import (
 	"locator/config/messaging"
 	"locator/models"
 	"locator/service"
+	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -31,17 +33,19 @@ func getCurrentUserFromContext(ctx *gin.Context) (*models.User, bool) {
 
 // locationSnapshot — последняя известная позиция пользователя (для GET /api/location/single|current).
 type locationSnapshot struct {
-	ID         int       `json:"id"`
-	UserID     int       `json:"user_id"`
-	Latitude   float64   `json:"latitude"`
-	Longitude  float64   `json:"longitude"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-	AgeSeconds int64     `json:"age_seconds"`
+	ID         int        `json:"id"`
+	UserID     int        `json:"user_id"`
+	Latitude   float64    `json:"latitude"`
+	Longitude  float64    `json:"longitude"`
+	CapturedAt *time.Time `json:"captured_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	AgeSeconds int64      `json:"age_seconds"`
 }
 
 func newLocationSnapshot(loc *models.Location) locationSnapshot {
-	age := int64(time.Since(loc.CreatedAt).Seconds())
+	effective := loc.EffectiveAt()
+	age := int64(time.Since(effective).Seconds())
 	if age < 0 {
 		age = 0
 	}
@@ -50,6 +54,7 @@ func newLocationSnapshot(loc *models.Location) locationSnapshot {
 		UserID:     loc.UserID,
 		Latitude:   loc.Latitude,
 		Longitude:  loc.Longitude,
+		CapturedAt: loc.CapturedAt,
 		CreatedAt:  loc.CreatedAt,
 		UpdatedAt:  loc.UpdatedAt,
 		AgeSeconds: age,
@@ -140,11 +145,13 @@ func (lc *LocationController) PostLocation(ctx *gin.Context) {
 	}
 
 	var req struct {
-		UserID    int     `json:"user_id"`
-		Latitude  float64 `json:"latitude"`
-		Longitude float64 `json:"longitude"`
-		RequestID string  `json:"request_id"`
-		Source    string  `json:"source"`
+		UserID     int     `json:"user_id"`
+		Latitude   float64 `json:"latitude"`
+		Longitude  float64 `json:"longitude"`
+		RequestID  string  `json:"request_id"`
+		Source     string  `json:"source"`
+		CapturedAt string  `json:"captured_at"`
+		Timestamp  int64   `json:"timestamp"`
 	}
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Некорректное тело запроса"})
@@ -159,6 +166,14 @@ func (lc *LocationController) PostLocation(ctx *gin.Context) {
 	if !currentUser.IsAdmin && targetUserID != currentUser.ID {
 		ctx.JSON(http.StatusForbidden, gin.H{"error": "Недостаточно прав для обновления чужой локации"})
 		return
+	}
+
+	if exists, err := lc.Service.UserExists(targetUserID); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка проверки пользователя"})
+		return
+	} else if !exists {
+		log.Printf("[PostLocation] user_id=%d не найден, используем текущего user_id=%d", targetUserID, currentUser.ID)
+		targetUserID = currentUser.ID
 	}
 
 	source := strings.TrimSpace(req.Source)
@@ -179,10 +194,22 @@ func (lc *LocationController) PostLocation(ctx *gin.Context) {
 		}
 	}
 
+	capturedAt, err := lc.Service.ResolveCapturedAt(req.CapturedAt, req.Timestamp)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Создаём новую запись о локации вместо обновления существующей.
-	location, err := lc.Service.CreateLocation(targetUserID, req.Latitude, req.Longitude, requestID, source)
+	location, skipped, err := lc.Service.CreateLocation(
+		targetUserID, req.Latitude, req.Longitude, requestID, source, capturedAt,
+	)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания записи"})
+		return
+	}
+	if skipped {
+		ctx.JSON(http.StatusOK, gin.H{"skipped": true, "reason": "gps_outlier"})
 		return
 	}
 
@@ -207,7 +234,7 @@ func (lc *LocationController) PostLocation(ctx *gin.Context) {
 		UserID:     targetUserID,
 		Latitude:   req.Latitude,
 		Longitude:  req.Longitude,
-		OccurredAt: time.Now(),
+		OccurredAt: location.EffectiveAt(),
 	}
 	// Публикуем событие в RabbitMQ.
 	if err := lc.Publisher.PublishJSON(event); err != nil {
@@ -294,6 +321,10 @@ func (lc *LocationController) GetMatchedRoute(ctx *gin.Context) {
 			forUser = append(forUser, l)
 		}
 	}
+	forUser = service.FilterTrackOutliers(forUser)
+	sort.Slice(forUser, func(i, j int) bool {
+		return forUser[i].EffectiveAt().Before(forUser[j].EffectiveAt())
+	})
 	if len(forUser) < 2 {
 		ctx.JSON(http.StatusOK, gin.H{"coordinates": [][]float64{}})
 		return
@@ -305,4 +336,34 @@ func (lc *LocationController) GetMatchedRoute(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"coordinates": coords})
+}
+
+// PostBackfillCapturedAt — POST /api/admin/locations/backfill-captured-at
+// Восстанавливает captured_at для старых точек (офлайн-очередь без timestamp в БД).
+func (lc *LocationController) PostBackfillCapturedAt(ctx *gin.Context) {
+	currentUser, ok := getCurrentUserFromContext(ctx)
+	if !ok {
+		return
+	}
+	if !currentUser.IsAdmin {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Требуются права администратора"})
+		return
+	}
+
+	userID, _ := strconv.Atoi(ctx.Query("user_id"))
+	intervalSec, _ := strconv.Atoi(ctx.DefaultQuery("interval_seconds", "300"))
+	burstGapSec, _ := strconv.Atoi(ctx.DefaultQuery("burst_gap_seconds", "30"))
+	dryRun := ctx.Query("dry_run") == "true" || ctx.Query("dry_run") == "1"
+
+	result, err := lc.Service.BackfillCapturedAt(service.BackfillCapturedAtOptions{
+		UserID:          userID,
+		Interval:        time.Duration(intervalSec) * time.Second,
+		DryRun:          dryRun,
+		BurstGapSeconds: burstGapSec,
+	})
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, result)
 }

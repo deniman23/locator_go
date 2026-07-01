@@ -23,6 +23,8 @@ export interface Location {
     user_id: number;
     latitude: number;
     longitude: number;
+    /** Момент фиксации GPS на устройстве (офлайн-очередь) */
+    captured_at?: string;
     created_at: string;
     updated_at: string;
     /** Секунд с момента последней точки (GET /location/single|current) */
