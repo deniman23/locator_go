@@ -2,5 +2,6 @@
 backend/.env
 backend/logs/
 backend/static
+backups/*.sql.gz
 osrm-data/
 /.cursor
