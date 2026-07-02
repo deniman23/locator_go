@@ -1,6 +1,8 @@
 package router
 
 import (
+	"strings"
+
 	"locator/controllers"
 	"locator/middleware"
 	"locator/service"
@@ -25,7 +27,15 @@ func InitRoutes(
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
-	// Доступные без авторизации статические файлы (если они нужны)
+	router.Use(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/static/qrcode/") {
+			c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
+			c.Header("Pragma", "no-cache")
+			c.Header("Expires", "0")
+		}
+		c.Next()
+	})
+
 	router.Static("/static", "./static")
 
 	// Базовый маршрут для API, без middleware

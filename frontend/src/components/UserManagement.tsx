@@ -161,6 +161,7 @@ const UserManagement: React.FC = () => {
     };
 
     const handleShowUserQRCode = (user: User) => {
+        setQrRefreshKey(Date.now());
         setSelectedUser(user);
         setShowQRCode(true);
     };

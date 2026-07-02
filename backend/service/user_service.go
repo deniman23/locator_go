@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
@@ -154,7 +155,7 @@ func (svc *UserService) writeUserQRCode(userID int, plainKey string) (string, er
 		return "", err
 	}
 
-	return fmt.Sprintf("%s/static/qrcode/%d.png", apiBase, userID), nil
+	return fmt.Sprintf("%s/static/qrcode/%d.png?v=%d", apiBase, userID, time.Now().Unix()), nil
 }
 
 // RegenerateUserQR создаёт новый API-ключ и перезаписывает PNG QR-кода с текущим BASE_URL.

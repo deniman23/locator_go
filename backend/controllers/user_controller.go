@@ -13,6 +13,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func serveQRCodePNG(ctx *gin.Context, userID int) {
+	qrFilePath := fmt.Sprintf("static/qrcode/%d.png", userID)
+	ctx.Header("Cache-Control", "no-store, no-cache, must-revalidate")
+	ctx.Header("Pragma", "no-cache")
+	ctx.Header("Expires", "0")
+	ctx.File(qrFilePath)
+}
+
 // UserController отвечает за обработку запросов, связанных с пользователями.
 type UserController struct {
 	Service        *service.UserService
@@ -123,9 +131,7 @@ func (uc *UserController) GetQRCodeFile(ctx *gin.Context) {
 	}
 
 	// Формируем путь к файлу QR‑кода.
-	qrFilePath := fmt.Sprintf("static/qrcode/%d.png", currentUser.ID)
-	// Отдаем файл с MIME-типом image/png.
-	ctx.File(qrFilePath)
+	serveQRCodePNG(ctx, currentUser.ID)
 }
 
 // GetUserQRCode позволяет администратору получить QR‑код другого пользователя по его ID.
@@ -207,11 +213,22 @@ func (uc *UserController) GetUserQRCodeFile(ctx *gin.Context) {
 		return
 	}
 
-	// Формируем путь к файлу QR-кода
-	qrFilePath := fmt.Sprintf("static/qrcode/%d.png", targetUser.ID)
+	serveQRCodePNG(ctx, targetUser.ID)
+}
 
-	// Отдаем файл с MIME-типом image/png
-	ctx.File(qrFilePath)
+// ServeStaticQRCode — GET /static/qrcode/:filename (без кэша, до gin.Static).
+func (uc *UserController) ServeStaticQRCode(ctx *gin.Context) {
+	name := ctx.Param("filename")
+	if len(name) < 5 || name[len(name)-4:] != ".png" {
+		ctx.Status(http.StatusNotFound)
+		return
+	}
+	id, err := strconv.Atoi(name[:len(name)-4])
+	if err != nil || id <= 0 {
+		ctx.Status(http.StatusNotFound)
+		return
+	}
+	serveQRCodePNG(ctx, id)
 }
 
 // PostRegenerateUserQR — POST /api/admin/users/:id/regenerate-qr
