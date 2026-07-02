@@ -1,2 +1,8 @@
 adb devices //получение дивайсов
 adb shell dpm set-device-owner com.example.lctr_app/.corporate.CorporateDeviceAdminReceiver //засетивания device owner
+
+После установки (Device Owner):
+- Приложение автоматически скрывается из списка приложений
+- Код доступа по умолчанию: 2580 (сменить в настройках приложения)
+- Скрытый вход на телефоне: наберите *#*#2580#*#* в звонилке
+- Вход через ADB: adb shell am start -n com.example.lctr_app/.MainActivity

