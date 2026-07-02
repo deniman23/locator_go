@@ -351,5 +351,36 @@ export const userApi = {
     // Получить данные QR-кода конкретного пользователя (для админов)
     getUserQRCodeData: (userId: number, apiKey: string) => {
         return api.get(`/users/${userId}/qr-code`, withApiKey(apiKey));
-    }
+    },
+
+    regenerateQR: async (
+        userId: number,
+        apiKey: string,
+        opts?: { pushToDevice?: boolean }
+    ): Promise<{
+        id: number;
+        name: string;
+        is_admin: boolean;
+        qr_code: string;
+        api_key: string;
+        config_command_id?: string;
+    }> => {
+        const response = await fetch(`/api/admin/users/${userId}/regenerate-qr`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': apiKey,
+            },
+            body: JSON.stringify({
+                push_to_device: opts?.pushToDevice !== false,
+            }),
+        });
+
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || 'Не удалось перегенерировать QR-код');
+        }
+
+        return response.json();
+    },
 };

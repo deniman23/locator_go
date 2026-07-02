@@ -66,26 +66,11 @@ func (svc *UserService) CreateUser(name string, isAdmin bool, forceAPIKey ...str
 		return nil, "", err
 	}
 
-	// Формируем содержимое для QR‑кода: user_id, api_key и базовый URL API.
-	apiBase := os.Getenv("BASE_URL")
-	if apiBase == "" {
-		apiBase = "http://localhost:8080"
-	}
-	qrContent := fmt.Sprintf(`{"user_id": %d, "api_key": "%s", "api_base_url": "%s"}`, user.ID, plainKey, apiBase)
-
-	// Определяем путь для сохранения изображения QR‑кода.
-	// Убедитесь, что папка static/qrcode существует и доступна для записи.
-	qrFilePath := fmt.Sprintf("static/qrcode/%d.png", user.ID)
-	err = qrcode.WriteFile(qrContent, qrcode.Medium, 256, qrFilePath)
+	qrCodeURL, err := svc.writeUserQRCode(user.ID, plainKey)
 	if err != nil {
 		log.Printf("[UserService CreateUser] Ошибка генерации QR кода: %v", err)
 		return nil, "", err
 	}
-
-	// Формируем публичную ссылку на QR‑код, используя BASE_URL из переменных окружения
-	baseURL := os.Getenv("BASE_URL")
-
-	qrCodeURL := fmt.Sprintf("%s/static/qrcode/%d.png", baseURL, user.ID)
 	user.QRCode = qrCodeURL
 
 	// Обновляем запись пользователя, сохраняя ссылку на QR‑код.
@@ -146,6 +131,73 @@ func (svc *UserService) GetUserByID(id int) (*models.User, error) {
 		return nil, err
 	}
 	return user, nil
+}
+
+func apiBaseURL() string {
+	apiBase := os.Getenv("BASE_URL")
+	if apiBase == "" {
+		return "http://localhost:8080"
+	}
+	return apiBase
+}
+
+func (svc *UserService) writeUserQRCode(userID int, plainKey string) (string, error) {
+	apiBase := apiBaseURL()
+	qrContent := fmt.Sprintf(`{"user_id": %d, "api_key": "%s", "api_base_url": "%s"}`, userID, plainKey, apiBase)
+
+	if err := os.MkdirAll("static/qrcode", 0o755); err != nil {
+		return "", err
+	}
+
+	qrFilePath := fmt.Sprintf("static/qrcode/%d.png", userID)
+	if err := qrcode.WriteFile(qrContent, qrcode.Medium, 256, qrFilePath); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s/static/qrcode/%d.png", apiBase, userID), nil
+}
+
+// RegenerateUserQR создаёт новый API-ключ и перезаписывает PNG QR-кода с текущим BASE_URL.
+// Если plainKey не пустой — используется указанный ключ вместо генерации нового.
+func (svc *UserService) RegenerateUserQR(userID int, plainKey ...string) (*models.User, string, error) {
+	user, err := svc.DAO.GetByID(userID)
+	if err != nil {
+		log.Printf("[UserService RegenerateUserQR] Пользователь с ID=%d не найден: %v", userID, err)
+		return nil, "", err
+	}
+
+	var key string
+	if len(plainKey) > 0 && plainKey[0] != "" {
+		key = plainKey[0]
+	} else {
+		key, err = generateSecureAPIKey()
+		if err != nil {
+			log.Printf("[UserService RegenerateUserQR] Ошибка генерации API ключа: %v", err)
+			return nil, "", err
+		}
+	}
+
+	hashedKey, err := bcrypt.GenerateFromPassword([]byte(key), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("[UserService RegenerateUserQR] Ошибка хеширования API ключа: %v", err)
+		return nil, "", err
+	}
+
+	qrCodeURL, err := svc.writeUserQRCode(userID, key)
+	if err != nil {
+		log.Printf("[UserService RegenerateUserQR] Ошибка генерации QR кода: %v", err)
+		return nil, "", err
+	}
+
+	user.ApiKey = string(hashedKey)
+	user.QRCode = qrCodeURL
+	if err := svc.DAO.Update(user); err != nil {
+		log.Printf("[UserService RegenerateUserQR] Ошибка обновления пользователя: %v", err)
+		return nil, "", err
+	}
+
+	log.Printf("[UserService RegenerateUserQR] QR перегенерирован: ID=%d, Name=%s", user.ID, user.Name)
+	return user, key, nil
 }
 
 // GetAllUsers возвращает список всех пользователей.

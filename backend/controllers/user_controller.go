@@ -2,7 +2,9 @@ package controllers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
 
 	"locator/models"
@@ -13,12 +15,13 @@ import (
 
 // UserController отвечает за обработку запросов, связанных с пользователями.
 type UserController struct {
-	Service *service.UserService
+	Service        *service.UserService
+	CommandService *service.DeviceCommandService
 }
 
 // NewUserController создаёт новый экземпляр UserController.
-func NewUserController(svc *service.UserService) *UserController {
-	return &UserController{Service: svc}
+func NewUserController(svc *service.UserService, cmdSvc *service.DeviceCommandService) *UserController {
+	return &UserController{Service: svc, CommandService: cmdSvc}
 }
 
 func (uc *UserController) CreateUser(ctx *gin.Context) {
@@ -209,6 +212,79 @@ func (uc *UserController) GetUserQRCodeFile(ctx *gin.Context) {
 
 	// Отдаем файл с MIME-типом image/png
 	ctx.File(qrFilePath)
+}
+
+// PostRegenerateUserQR — POST /api/admin/users/:id/regenerate-qr
+// Создаёт новый API-ключ, перезаписывает PNG и опционально ставит config_update на устройство.
+func (uc *UserController) PostRegenerateUserQR(ctx *gin.Context) {
+	currentUserInterface, exists := ctx.Get("user")
+	if !exists {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Необходима авторизация"})
+		return
+	}
+	currentUser, ok := currentUserInterface.(*models.User)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка определения текущего пользователя"})
+		return
+	}
+	if !currentUser.IsAdmin {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Доступ разрешен только администраторам"})
+		return
+	}
+
+	idStr := ctx.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID пользователя"})
+		return
+	}
+
+	var body struct {
+		PushToDevice *bool  `json:"push_to_device"`
+		APIKey       string `json:"api_key"`
+	}
+	_ = ctx.ShouldBindJSON(&body)
+	pushToDevice := body.PushToDevice == nil || *body.PushToDevice
+
+	var user *models.User
+	var plainKey string
+	if body.APIKey != "" {
+		user, plainKey, err = uc.Service.RegenerateUserQR(id, body.APIKey)
+	} else {
+		user, plainKey, err = uc.Service.RegenerateUserQR(id)
+	}
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Пользователь не найден"})
+		return
+	}
+
+	response := gin.H{
+		"id":       user.ID,
+		"name":     user.Name,
+		"is_admin": user.IsAdmin,
+		"qr_code":  user.QRCode,
+		"api_key":  plainKey,
+	}
+
+	if pushToDevice && uc.CommandService != nil {
+		apiBase := os.Getenv("BASE_URL")
+		if apiBase == "" {
+			apiBase = "http://localhost:8080"
+		}
+		payload := map[string]interface{}{
+			"api_base_url": apiBase,
+			"api_key":      plainKey,
+			"user_id":      user.ID,
+		}
+		cmd, err := uc.CommandService.EnqueueCommand(user.ID, models.DeviceCommandTypeConfigUpdate, payload)
+		if err != nil {
+			log.Printf("[PostRegenerateUserQR] config_update не поставлен в очередь: %v", err)
+		} else {
+			response["config_command_id"] = cmd.ID
+		}
+	}
+
+	ctx.JSON(http.StatusOK, response)
 }
 
 // GetCurrentUser возвращает информацию о текущем аутентифицированном пользователе

@@ -57,6 +57,13 @@ const UserManagement: React.FC = () => {
 
     const [showQRCode, setShowQRCode] = useState(false);
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
+    const [qrRefreshKey, setQrRefreshKey] = useState(0);
+    const [regenerateResult, setRegenerateResult] = useState<{
+        userId: number;
+        userName: string;
+        apiKey: string;
+        pushedToDevice: boolean;
+    } | null>(null);
 
     const [newUserName, setNewUserName] = useState('');
     const [newUserIsAdmin, setNewUserIsAdmin] = useState(false);
@@ -163,6 +170,56 @@ const UserManagement: React.FC = () => {
         setSelectedUser(null);
     };
 
+    const handleRegenerateQR = async (user: User) => {
+        if (!apiKey) return;
+
+        const confirmed = window.confirm(
+            `Перегенерировать QR для «${user.name}»?\n\n` +
+                'Будет создан новый API-ключ. Старый перестанет работать.\n' +
+                'На телефоне нужно отсканировать новый QR (или дождаться config_update, если устройство онлайн).'
+        );
+        if (!confirmed) return;
+
+        setActionUserId(user.id);
+        setNotice(user.id, 'Перегенерация QR…', 60_000);
+
+        try {
+            const result = await userApi.regenerateQR(user.id, apiKey);
+            setUsers((prev) =>
+                prev.map((u) => (u.id === user.id ? { ...u, qr_code: result.qr_code } : u))
+            );
+            setQrRefreshKey(Date.now());
+            setRegenerateResult({
+                userId: user.id,
+                userName: user.name,
+                apiKey: result.api_key,
+                pushedToDevice: Boolean(result.config_command_id),
+            });
+            setNotice(
+                user.id,
+                result.config_command_id
+                    ? 'QR обновлён, config_update отправлен на устройство'
+                    : 'QR обновлён — отсканируйте новый код на телефоне'
+            );
+        } catch (err) {
+            setNotice(
+                user.id,
+                err instanceof Error ? err.message : 'Не удалось перегенерировать QR'
+            );
+        } finally {
+            setActionUserId(null);
+        }
+    };
+
+    const handleShowRegeneratedQR = () => {
+        if (!regenerateResult) return;
+        const user = users.find((u) => u.id === regenerateResult.userId);
+        if (user) {
+            setSelectedUser(user);
+            setShowQRCode(true);
+        }
+    };
+
     const handleRequestLocation = async (userId: number) => {
         if (!apiKey) return;
         const baselineAge = deviceStatus[userId]?.ageSeconds;
@@ -259,7 +316,46 @@ const UserManagement: React.FC = () => {
                     onClose={handleCloseQRCode}
                     userId={selectedUser?.id}
                     userName={selectedUser?.name}
+                    refreshKey={qrRefreshKey}
                 />
+            )}
+
+            {regenerateResult && (
+                <div className="qr-code-modal">
+                    <div className="qr-code-container">
+                        <div className="qr-code-header">
+                            <h3>Новый ключ: {regenerateResult.userName}</h3>
+                            <button
+                                className="close-button"
+                                onClick={() => setRegenerateResult(null)}
+                                type="button"
+                            >
+                                ×
+                            </button>
+                        </div>
+                        <div className="qr-code-content">
+                            <p>Сохраните ключ — он показывается один раз:</p>
+                            <code className="regenerate-api-key">{regenerateResult.apiKey}</code>
+                            <p className="qr-code-hint">
+                                {regenerateResult.pushedToDevice
+                                    ? 'На устройство отправлен config_update. Если телефон онлайн, настройки обновятся автоматически; иначе отсканируйте QR.'
+                                    : 'Отсканируйте новый QR-код в приложении на телефоне.'}
+                            </p>
+                        </div>
+                        <div className="qr-code-footer">
+                            <button className="button" type="button" onClick={handleShowRegeneratedQR}>
+                                Показать QR
+                            </button>
+                            <button
+                                className="button"
+                                type="button"
+                                onClick={() => setRegenerateResult(null)}
+                            >
+                                Закрыть
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             <div className="create-user-form">
@@ -434,6 +530,14 @@ const UserManagement: React.FC = () => {
                                                 disabled={busy}
                                             >
                                                 QR-код
+                                            </button>
+                                            <button
+                                                className="device-action-button"
+                                                onClick={() => handleRegenerateQR(user)}
+                                                disabled={busy}
+                                                title="Новый API-ключ и QR (старый перестанет работать)"
+                                            >
+                                                Перегенерировать QR
                                             </button>
                                             <button
                                                 className="device-action-button"

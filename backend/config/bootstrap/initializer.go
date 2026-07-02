@@ -136,7 +136,7 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	// User
 	userDAO := dao.NewUserDAO(dbConn)
 	userService := service.NewUserService(userDAO)
-	userController := controllers.NewUserController(userService)
+	userController := controllers.NewUserController(userService, deviceCommandService)
 
 	// 5. Инициализация роутера
 	routerEngine := router.InitRoutes(
