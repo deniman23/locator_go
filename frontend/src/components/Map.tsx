@@ -117,6 +117,7 @@ const MapComponent: React.FC = () => {
     const [trackMode, setTrackMode] = useState<TrackMode>('polyline');
     const [useRoadMatch, setUseRoadMatch] = useState(false);
     const [roadCoords, setRoadCoords] = useState<[number, number][] | null>(null);
+    const [roadSegments, setRoadSegments] = useState<[number, number][][]>([]);
     const [roadMatchNote, setRoadMatchNote] = useState<string | null>(null);
     const [routeLoading, setRouteLoading] = useState(false);
     /** Увеличивается по кнопке «Получить маршрут», чтобы заново запросить линию OSRM */
@@ -254,6 +255,7 @@ const MapComponent: React.FC = () => {
     useEffect(() => {
         let cancelled = false;
         setRoadCoords(null);
+        setRoadSegments([]);
         setRoadMatchNote(null);
 
         if (
@@ -283,7 +285,15 @@ const MapComponent: React.FC = () => {
             try {
                 const res = await locationApi.getMatchedRoute(uid, fromTime, toTime, apiKey);
                 if (!cancelled) {
-                    setRoadCoords(res.data.coordinates || []);
+                    const segments = (res.data.segments || [])
+                        .map(seg => seg.filter(pt => pt.length >= 2))
+                        .filter(seg => seg.length >= 2);
+                    setRoadSegments(segments);
+                    setRoadCoords(
+                        segments.length > 0
+                            ? segments.flat()
+                            : res.data.coordinates || []
+                    );
                     setRoadMatchNote(null);
                 }
             } catch (e: unknown) {
@@ -414,6 +424,9 @@ const MapComponent: React.FC = () => {
     const applyPeriod = () => {
         setShouldFitBounds(true);
         void fetchData();
+        if (useRoadMatch && selectedUserIds.length === 1) {
+            setMatchedRouteNonce(n => n + 1);
+        }
     };
 
     /** Загрузка точек за период, показ трека и подгонка карты; при включённой привязке к дорогам — повторный запрос OSRM */
@@ -686,7 +699,26 @@ const MapComponent: React.FC = () => {
                             />
                         ))}
 
-                    {useRoadMatch && roadCoords && roadCoords.length > 1 && selectedUserIds.length === 1 && (
+                    {useRoadMatch &&
+                        roadSegments.length > 0 &&
+                        selectedUserIds.length === 1 &&
+                        roadSegments.map((segment, index) => (
+                            <Polyline
+                                key={`road-match-${index}`}
+                                positions={segment}
+                                pathOptions={{
+                                    color: getUserColor(selectedUserIds[0]),
+                                    weight: 5,
+                                    opacity: 0.9,
+                                }}
+                            />
+                        ))}
+
+                    {useRoadMatch &&
+                        roadSegments.length === 0 &&
+                        roadCoords &&
+                        roadCoords.length > 1 &&
+                        selectedUserIds.length === 1 && (
                         <Polyline
                             key="road-match"
                             positions={roadCoords}

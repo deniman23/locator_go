@@ -330,12 +330,15 @@ func (lc *LocationController) GetMatchedRoute(ctx *gin.Context) {
 		return
 	}
 
-	coords, err := service.MatchLocationsToRoads(lc.HTTPRouting, lc.RoutingBaseURL, forUser)
+	coords, segments, err := service.MatchLocationsToRoads(lc.HTTPRouting, lc.RoutingBaseURL, forUser)
 	if err != nil {
 		ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{"coordinates": coords})
+	ctx.JSON(http.StatusOK, gin.H{
+		"coordinates": coords,
+		"segments":    segments,
+	})
 }
 
 // PostBackfillCapturedAt — POST /api/admin/locations/backfill-captured-at

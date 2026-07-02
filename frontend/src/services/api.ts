@@ -86,7 +86,7 @@ export const locationApi = {
 
     /** OSRM match; нужен ROUTING_BASE_URL на сервере. Координаты [lat, lng] */
     getMatchedRoute: (userId: number, from: string, to: string, apiKey?: string) =>
-        api.get<{ coordinates: [number, number][] }>('/location/match-route', {
+        api.get<{ coordinates: [number, number][]; segments?: [number, number][][] }>('/location/match-route', {
             ...withApiKey(apiKey),
             params: { user_id: userId, from, to }
         }),

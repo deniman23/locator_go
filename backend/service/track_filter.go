@@ -55,12 +55,64 @@ func FilterTrackOutliers(locs []models.Location) []models.Location {
 	for i := 1; i < len(locs); i++ {
 		curr := locs[i]
 		prev := out[len(out)-1]
+		baseline := trackOutlierBaseline(out)
 		if IsTrackOutlierFromPrev(prev, curr) {
+			if baseline == nil ||
+				haversineDistanceM(baseline.Latitude, baseline.Longitude, curr.Latitude, curr.Longitude) > trackBatchMaxJumpM {
+				continue
+			}
+		} else if baseline != nil && IsTrackOutlierFromPrev(*baseline, curr) {
 			continue
 		}
 		out = append(out, curr)
 	}
 	return out
+}
+
+func trackOutlierBaseline(kept []models.Location) *models.Location {
+	if len(kept) == 0 {
+		return nil
+	}
+	idx := len(kept) - 1
+	prev := kept[idx]
+	for n := 0; n < 8; n++ {
+		if idx <= 0 {
+			break
+		}
+		grand := kept[idx-1]
+		if IsTrackOutlierFromPrev(grand, prev) {
+			prev = grand
+			idx--
+			continue
+		}
+		break
+	}
+	return &prev
+}
+
+// SplitTrackForRoadMatch делит трек на непрерывные отрезки без GPS-телепортов.
+func SplitTrackForRoadMatch(locs []models.Location) [][]models.Location {
+	if len(locs) < 2 {
+		return nil
+	}
+	var segments [][]models.Location
+	current := []models.Location{locs[0]}
+	for i := 1; i < len(locs); i++ {
+		prev := current[len(current)-1]
+		curr := locs[i]
+		if IsTrackOutlierFromPrev(prev, curr) {
+			if len(current) >= 2 {
+				segments = append(segments, current)
+			}
+			current = []models.Location{curr}
+			continue
+		}
+		current = append(current, curr)
+	}
+	if len(current) >= 2 {
+		segments = append(segments, current)
+	}
+	return segments
 }
 
 func haversineDistanceM(lat1, lon1, lat2, lon2 float64) float64 {

@@ -8,7 +8,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"locator/models"
 )
@@ -61,21 +60,45 @@ type osrmMatchResponse struct {
 
 // MatchLocationsToRoads строит линию по дорогам через OSRM match. baseURL без завершающего слэша
 // (например https://router.project-osrm.org). Координаты в ответе: [lat, lng] для Leaflet.
-func MatchLocationsToRoads(client *http.Client, baseURL string, locs []models.Location) ([][]float64, error) {
+// Трек режется на сегменты без GPS-телепортов — иначе OSRM рисует «дорогу» через весь город.
+func MatchLocationsToRoads(client *http.Client, baseURL string, locs []models.Location) ([][]float64, [][][]float64, error) {
 	if baseURL == "" {
-		return nil, fmt.Errorf("routing base URL is empty")
+		return nil, nil, fmt.Errorf("routing base URL is empty")
 	}
 	if client == nil {
 		client = &http.Client{Timeout: 45 * time.Second}
 	}
 	baseURL = strings.TrimSuffix(baseURL, "/")
 	if len(locs) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if len(locs) == 1 {
-		return [][]float64{{locs[0].Latitude, locs[0].Longitude}}, nil
+		pt := [][]float64{{locs[0].Latitude, locs[0].Longitude}}
+		return pt, [][][]float64{pt}, nil
 	}
 
+	segments := SplitTrackForRoadMatch(locs)
+	if len(segments) == 0 {
+		return nil, nil, nil
+	}
+
+	var merged [][]float64
+	roadSegments := make([][][]float64, 0, len(segments))
+	for _, seg := range segments {
+		part, err := matchLocationSegment(client, baseURL, seg)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(part) < 2 {
+			continue
+		}
+		roadSegments = append(roadSegments, part)
+		merged = append(merged, part...)
+	}
+	return merged, roadSegments, nil
+}
+
+func matchLocationSegment(client *http.Client, baseURL string, locs []models.Location) ([][]float64, error) {
 	chunkSz := osrmMatchChunkSize()
 	var merged [][]float64
 	for start := 0; start < len(locs); {
@@ -89,7 +112,6 @@ func MatchLocationsToRoads(client *http.Client, baseURL string, locs []models.Lo
 			return nil, err
 		}
 		if len(merged) > 0 && len(part) > 0 {
-			// убрать дубликат стыка
 			last := merged[len(merged)-1]
 			first := part[0]
 			if last[0] == first[0] && last[1] == first[1] {
@@ -100,7 +122,6 @@ func MatchLocationsToRoads(client *http.Client, baseURL string, locs []models.Lo
 		if end == len(locs) {
 			break
 		}
-		// перекрытие в одну точку для непрерывности трека
 		start = end - 1
 	}
 	return merged, nil

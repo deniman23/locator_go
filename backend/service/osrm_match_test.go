@@ -12,7 +12,7 @@ import (
 
 func TestMatchLocationsToRoads_singlePoint(t *testing.T) {
 	client := &http.Client{Timeout: 5 * time.Second}
-	out, err := MatchLocationsToRoads(client, "http://unused", []models.Location{
+	out, segments, err := MatchLocationsToRoads(client, "http://unused", []models.Location{
 		{Latitude: 53.9, Longitude: 27.57},
 	})
 	if err != nil {
@@ -20,6 +20,9 @@ func TestMatchLocationsToRoads_singlePoint(t *testing.T) {
 	}
 	if len(out) != 1 || out[0][0] != 53.9 || out[0][1] != 27.57 {
 		t.Fatalf("unexpected %v", out)
+	}
+	if len(segments) != 1 {
+		t.Fatalf("segments %v", segments)
 	}
 }
 
@@ -47,7 +50,7 @@ func TestMatchLocationsToRoads_httpMock(t *testing.T) {
 		{Latitude: 53.9, Longitude: 27.5},
 		{Latitude: 53.91, Longitude: 27.51},
 	}
-	out, err := MatchLocationsToRoads(http.DefaultClient, srv.URL, locs)
+	out, _, err := MatchLocationsToRoads(http.DefaultClient, srv.URL, locs)
 	if err != nil {
 		t.Fatal(err)
 	}
