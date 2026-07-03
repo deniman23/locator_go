@@ -23,13 +23,17 @@ import {
     buildCleanTrackPolyline,
     buildLocationClusters,
     clusterDurationSeconds,
+    clusterOverlapsPeriod,
+    clusterStartedBeforePeriod,
     compareMinskDateTimes,
     filterLocationsInPeriod,
     filterTrackOutliers,
     isSignificantStay,
     isValidMapLocation,
+    minskDateTimeHoursBefore,
     minskDayBounds,
     STAY_CLUSTER_RADIUS_M,
+    STAY_PERIOD_LOOKBACK_HOURS,
     type LocationCluster,
 } from '../utils/locationTrack';
 
@@ -39,6 +43,7 @@ type MapMarkerPoint = Location & {
     clusterToMs?: number;
     durationSeconds?: number;
     isStay?: boolean;
+    continuedFromBefore?: boolean;
 };
 
 function stayMarkerRadius(durationSec: number, isStay: boolean): number {
@@ -190,8 +195,12 @@ const MapComponent: React.FC = () => {
             if (fetchGen !== fetchGenerationRef.current) return;
             setCheckpoints(cpRes.data);
 
-            const locRes = await locationApi.getBetween(
+            const fetchFrom = minskDateTimeHoursBefore(
                 currentFilters.fromTime,
+                STAY_PERIOD_LOOKBACK_HOURS,
+            );
+            const locRes = await locationApi.getBetween(
+                fetchFrom,
                 currentFilters.toTime,
                 currentApiKey,
                 { raw: true }
@@ -200,7 +209,7 @@ const MapComponent: React.FC = () => {
 
             const locs = filterLocationsInPeriod(
                 locRes.data || [],
-                currentFilters.fromTime,
+                fetchFrom,
                 currentFilters.toTime
             );
             setUserLocations(locs);
@@ -370,20 +379,37 @@ const MapComponent: React.FC = () => {
 
     const hiddenOutlierCount = visibleLocations.length - trackLocations.length;
 
+    const periodBounds = useMemo(() => {
+        if (!fromTime || !toTime || compareMinskDateTimes(fromTime, toTime) >= 0) {
+            return null;
+        }
+        return { from: fromTime, to: toTime };
+    }, [fromTime, toTime]);
+
     const clustersByUser = useMemo(() => {
         const m = new Map<number, LocationCluster[]>();
+        const byUser = new Map<number, Location[]>();
+        for (const loc of userLocations) {
+            if (!selectedUserIds.includes(loc.user_id) || !isValidMapLocation(loc)) continue;
+            const arr = byUser.get(loc.user_id) ?? [];
+            arr.push(loc);
+            byUser.set(loc.user_id, arr);
+        }
         for (const uid of selectedUserIds) {
-            const locs = trackLocations.filter(l => l.user_id === uid);
+            const locs = filterTrackOutliers(byUser.get(uid) ?? []);
             m.set(uid, buildLocationClusters(locs));
         }
         return m;
-    }, [trackLocations, selectedUserIds]);
+    }, [userLocations, selectedUserIds]);
 
     const displayMarkers = useMemo((): MapMarkerPoint[] => {
         if (markerMode === 'all') return trackLocations;
         const out: MapMarkerPoint[] = [];
         for (const clusters of clustersByUser.values()) {
             for (const cluster of clusters) {
+                if (periodBounds && !clusterOverlapsPeriod(cluster, periodBounds.from, periodBounds.to)) {
+                    continue;
+                }
                 const durSec = clusterDurationSeconds(cluster);
                 const stay = isSignificantStay(cluster);
                 out.push({
@@ -393,19 +419,26 @@ const MapComponent: React.FC = () => {
                     clusterToMs: cluster.toMs,
                     durationSeconds: durSec,
                     isStay: stay,
+                    continuedFromBefore: periodBounds
+                        ? clusterStartedBeforePeriod(cluster, periodBounds.from)
+                        : false,
                 });
             }
         }
         return out;
-    }, [trackLocations, markerMode, clustersByUser]);
+    }, [trackLocations, markerMode, clustersByUser, periodBounds]);
 
     const significantStayCount = useMemo(() => {
         let n = 0;
         for (const clusters of clustersByUser.values()) {
-            n += clusters.filter(isSignificantStay).length;
+            n += clusters.filter(
+                c =>
+                    isSignificantStay(c) &&
+                    (!periodBounds || clusterOverlapsPeriod(c, periodBounds.from, periodBounds.to)),
+            ).length;
         }
         return n;
-    }, [clustersByUser]);
+    }, [clustersByUser, periodBounds]);
 
     const gpsPolylinesByUser = useMemo(() => {
         const m = new Map<number, [number, number][]>();
@@ -660,7 +693,12 @@ const MapComponent: React.FC = () => {
                             {selectedUserIds.map(uid => {
                                 const userName = allUsers.find(u => u.id === uid)?.name ?? `ID ${uid}`;
                                 const stays = (clustersByUser.get(uid) ?? [])
-                                    .filter(isSignificantStay)
+                                    .filter(
+                                        c =>
+                                            isSignificantStay(c) &&
+                                            (!periodBounds ||
+                                                clusterOverlapsPeriod(c, periodBounds.from, periodBounds.to)),
+                                    )
                                     .sort((a, b) => b.fromMs - a.fromMs);
                                 if (!stays.length) {
                                     return (
@@ -690,6 +728,12 @@ const MapComponent: React.FC = () => {
                                                         {formatDateTime(new Date(cluster.fromMs))} —{' '}
                                                         {formatDateTime(new Date(cluster.toMs))}
                                                     </span>
+                                                    {periodBounds &&
+                                                        clusterStartedBeforePeriod(cluster, periodBounds.from) && (
+                                                            <span className="map-stay-meta map-stay-continued">
+                                                                началась раньше выбранного периода
+                                                            </span>
+                                                        )}
                                                     <span className="map-stay-meta">
                                                         {cluster.points.length} GPS-точек
                                                     </span>
@@ -833,6 +877,11 @@ const MapComponent: React.FC = () => {
                                                         {formatDateTime(new Date(loc.clusterFromMs!))} —{' '}
                                                         {formatDateTime(new Date(loc.clusterToMs!))}
                                                     </div>
+                                                    {loc.continuedFromBefore && (
+                                                        <div className="popup-meta">
+                                                            Стоянка началась раньше выбранного периода
+                                                        </div>
+                                                    )}
                                                     <div className="popup-meta">
                                                         {loc.clusterSize} GPS-точек в радиусе ~
                                                         {STAY_CLUSTER_RADIUS_M} м

@@ -743,6 +743,11 @@ main {
   margin-top: 2px;
 }
 
+.map-stay-continued {
+  color: #2563eb;
+  font-style: italic;
+}
+
 .popup-coords {
   color: #6b7280;
   font-size: 11px;

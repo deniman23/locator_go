@@ -198,6 +198,8 @@ export const STAY_CLUSTER_RADIUS_M = 100;
 export const STAY_MAX_GAP_MS = 45 * 60 * 1000;
 /** Минимальная длительность, чтобы показать как «стоянку», а не точку проезда */
 export const MIN_STAY_DURATION_SEC = 5 * 60;
+/** Сколько часов подгружать до начала периода, чтобы стоянка не обрезалась в 00:00 */
+export const STAY_PERIOD_LOOKBACK_HOURS = 48;
 
 export interface LocationCluster {
     points: Location[];
@@ -236,6 +238,41 @@ export function clusterDurationMs(cluster: LocationCluster): number {
 
 export function clusterDurationSeconds(cluster: LocationCluster): number {
     return Math.round(clusterDurationMs(cluster) / 1000);
+}
+
+function formatMinskDateTimeLocalInput(ms: number): string {
+    const p = new Intl.DateTimeFormat('sv-SE', {
+        timeZone: 'Europe/Minsk',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    })
+        .formatToParts(new Date(ms))
+        .reduce<Record<string, string>>((acc, x) => {
+            if (x.type !== 'literal') acc[x.type] = x.value;
+            return acc;
+        }, {});
+    return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
+/** datetime-local «с» для API: на N часов раньше (Europe/Minsk). */
+export function minskDateTimeHoursBefore(value: string, hours: number): string {
+    return formatMinskDateTimeLocalInput(minskLocalToMs(value) - hours * 3_600_000);
+}
+
+export function clusterOverlapsPeriod(cluster: LocationCluster, from: string, to: string): boolean {
+    const fromMs = minskLocalToMs(from);
+    const toMs = periodEndInclusiveMs(to);
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return true;
+    return cluster.toMs >= fromMs && cluster.fromMs <= toMs;
+}
+
+export function clusterStartedBeforePeriod(cluster: LocationCluster, from: string): boolean {
+    const fromMs = minskLocalToMs(from);
+    return Number.isFinite(fromMs) && cluster.fromMs < fromMs;
 }
 
 /** Стоянка (не одиночная точка проезда) */
