@@ -67,8 +67,11 @@ func (svc *LocationService) CreateLocation(
 		t := capturedAt.UTC()
 		newLocation.CapturedAt = &t
 	}
+	newLocation.NormalizeIngressCapturedAt()
 
 	effectiveAt := newLocation.EffectiveAt()
+	forceHeartbeat := requestID == "" && source == models.LocationSourcePeriodic &&
+		svc.needsLocationHeartbeat(userID)
 
 	// On-demand с request_id сохраняем, если это явный ответ на запрос; но отбрасываем
 	// устаревший GPS-fix после офлайна, который телепортирует трек.
@@ -82,7 +85,7 @@ func (svc *LocationService) CreateLocation(
 	}
 
 	// On-demand с request_id всегда сохраняем — это явный запрос координат.
-	if requestID == "" {
+	if requestID == "" && !forceHeartbeat {
 		prev, _ := svc.DAO.GetPreviousByEffectiveTime(userID, effectiveAt)
 		if skip, reason := ShouldSkipPoorLocation(source, accuracy, prev, lat, lon); skip {
 			log.Printf("[CreateLocation] Пропуск %s для userID=%d: %.6f,%.6f", reason, userID, lat, lon)
@@ -160,6 +163,15 @@ func (svc *LocationService) outlierBaseline(userID int, before time.Time) *model
 		break
 	}
 	return prev
+}
+
+// needsLocationHeartbeat — давно не было сохранённой точки; periodic принимаем как пульс «жив».
+func (svc *LocationService) needsLocationHeartbeat(userID int) bool {
+	last, err := svc.DAO.GetByUserID(userID)
+	if err != nil || last == nil {
+		return false
+	}
+	return time.Since(last.CreatedAt.UTC()) > 8*time.Minute
 }
 
 // GetLocations возвращает только значимые локации для отображения на карте.

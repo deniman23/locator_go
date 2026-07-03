@@ -86,3 +86,13 @@ func (loc *Location) HasStaleCapturedAt() bool {
 	}
 	return loc.CreatedAt.UTC().Sub(loc.CapturedAt.UTC()) > trackCapturedSkew
 }
+
+// NormalizeIngressCapturedAt подменяет устаревший captured_at временем приёма сервером.
+// Иначе фильтр выбросов сравнивает точку с неправильным предшественником и отбрасывает heartbeat.
+func (loc *Location) NormalizeIngressCapturedAt() {
+	if loc == nil || !loc.HasStaleCapturedAt() {
+		return
+	}
+	t := loc.CreatedAt.UTC()
+	loc.CapturedAt = &t
+}
