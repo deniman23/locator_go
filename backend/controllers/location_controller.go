@@ -152,6 +152,7 @@ func (lc *LocationController) PostLocation(ctx *gin.Context) {
 		Source     string  `json:"source"`
 		CapturedAt string  `json:"captured_at"`
 		Timestamp  int64   `json:"timestamp"`
+		Accuracy   float64 `json:"accuracy"`
 	}
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Некорректное тело запроса"})
@@ -200,16 +201,21 @@ func (lc *LocationController) PostLocation(ctx *gin.Context) {
 		return
 	}
 
+	var accuracy *float64
+	if req.Accuracy > 0 {
+		accuracy = &req.Accuracy
+	}
+
 	// Создаём новую запись о локации вместо обновления существующей.
-	location, skipped, err := lc.Service.CreateLocation(
-		targetUserID, req.Latitude, req.Longitude, requestID, source, capturedAt,
+	location, skipReason, err := lc.Service.CreateLocation(
+		targetUserID, req.Latitude, req.Longitude, requestID, source, capturedAt, accuracy,
 	)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания записи"})
 		return
 	}
-	if skipped {
-		ctx.JSON(http.StatusOK, gin.H{"skipped": true, "reason": "gps_outlier"})
+	if skipReason != "" {
+		ctx.JSON(http.StatusOK, gin.H{"skipped": true, "reason": skipReason})
 		return
 	}
 

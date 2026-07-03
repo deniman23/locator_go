@@ -54,12 +54,12 @@ func (svc *LocationService) UserExists(userID int) (bool, error) {
 
 // CreateLocation создаёт новую запись о местоположении без обновления существующей.
 // capturedAt — момент фиксации на устройстве (офлайн-очередь); nil — только created_at сервера.
-// skipped=true — точка отброшена как GPS-выброс (очередь офлайн / пакетная отправка).
+// skipReason непустой — точка отброшена (выброс, плохая точность, устаревший fix).
 func (svc *LocationService) CreateLocation(
-	userID int, lat, lon float64, requestID, source string, capturedAt *time.Time,
-) (*models.Location, bool, error) {
-	log.Printf("[CreateLocation] Создание записи: userID=%d, lat=%.6f, lon=%.6f, source=%s, captured_at=%v",
-		userID, lat, lon, source, capturedAt)
+	userID int, lat, lon float64, requestID, source string, capturedAt *time.Time, accuracy *float64,
+) (*models.Location, string, error) {
+	log.Printf("[CreateLocation] Создание записи: userID=%d, lat=%.6f, lon=%.6f, source=%s, captured_at=%v, accuracy=%v",
+		userID, lat, lon, source, capturedAt, accuracy)
 	newLocation := models.NewLocation(userID, lat, lon)
 	newLocation.RequestID = requestID
 	newLocation.Source = source
@@ -73,6 +73,10 @@ func (svc *LocationService) CreateLocation(
 	// On-demand с request_id всегда сохраняем — это явный запрос координат.
 	if requestID == "" {
 		prev, _ := svc.DAO.GetPreviousByEffectiveTime(userID, effectiveAt)
+		if skip, reason := ShouldSkipPoorLocation(source, accuracy, prev, lat, lon); skip {
+			log.Printf("[CreateLocation] Пропуск %s для userID=%d: %.6f,%.6f", reason, userID, lat, lon)
+			return nil, reason, nil
+		}
 		baseline := svc.outlierBaseline(userID, effectiveAt)
 		if prev != nil && IsTrackOutlierFromPrev(*prev, *newLocation) {
 			if baseline == nil || haversineDistanceM(
@@ -81,24 +85,24 @@ func (svc *LocationService) CreateLocation(
 			) > trackBatchMaxJumpM {
 				log.Printf("[CreateLocation] Пропуск выброса GPS для userID=%d: %.6f,%.6f",
 					userID, lat, lon)
-				return nil, true, nil
+				return nil, "gps_outlier", nil
 			}
 			log.Printf("[CreateLocation] Точка userID=%d принята как возврат к надёжной позиции", userID)
 		} else if baseline != nil && IsTrackOutlierFromPrev(*baseline, *newLocation) {
 			log.Printf("[CreateLocation] Пропуск выброса GPS для userID=%d: %.6f,%.6f (база %.6f,%.6f)",
 				userID, lat, lon, baseline.Latitude, baseline.Longitude)
-			return nil, true, nil
+			return nil, "gps_outlier", nil
 		}
 	}
 
 	if err := svc.DAO.Create(newLocation); err != nil {
 		log.Printf("[CreateLocation] Ошибка при создании записи для userID=%d: %v", userID, err)
-		return nil, false, err
+		return nil, "", err
 	}
 
 	log.Printf("[CreateLocation] Запись создана userID=%d: effective=%s, received=%s",
 		userID, svc.toMinskTime(effectiveAt), svc.toMinskTime(newLocation.CreatedAt))
-	return newLocation, false, nil
+	return newLocation, "", nil
 }
 
 const (

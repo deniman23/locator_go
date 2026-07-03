@@ -27,7 +27,7 @@ func TestBackfillBurstSpread(t *testing.T) {
 	flushBurst := func(batch []models.Location) {
 		anchor := batch[0].CreatedAt.UTC()
 		for i, loc := range batch {
-			offset := time.Duration(len(batch)-1-i) * interval)
+			offset := time.Duration(len(batch)-1-i) * interval
 			pending = append(pending, assignment{id: loc.ID, at: anchor.Add(-offset)})
 		}
 	}
