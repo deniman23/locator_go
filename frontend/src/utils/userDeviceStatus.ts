@@ -65,6 +65,45 @@ export async function fetchUserDeviceStatus(
     }
 }
 
+/** Пакетная загрузка статусов для списка пользователей (админка). */
+export async function fetchAllUserDeviceStatuses(
+    userIds: number[],
+    apiKey: string
+): Promise<Record<number, UserDeviceStatus>> {
+    const out: Record<number, UserDeviceStatus> = {};
+    for (const id of userIds) {
+        out[id] = { gps: 'offline', issues: [] };
+    }
+
+    try {
+        const { data } = await deviceApi.getAllDevicesStatus(apiKey);
+        for (const [idStr, row] of Object.entries(data.users ?? {})) {
+            const id = Number(idStr);
+            if (!Number.isFinite(id)) continue;
+            const age = row.age_seconds;
+            let gps: GpsStatus = 'offline';
+            if (age != null) {
+                gps = age <= GPS_ONLINE_SECONDS ? 'online' : 'stale';
+            } else if (row.gps === 'online' || row.gps === 'stale') {
+                gps = row.gps;
+            }
+            out[id] = {
+                gps,
+                ageSeconds: age,
+                healthy: row.healthy,
+                lastReportAt: row.last_report_at,
+                appVersion: row.app_version,
+                platform: row.platform,
+                issues: row.issues ?? [],
+            };
+        }
+    } catch {
+        // fallback: пустые статусы
+    }
+
+    return out;
+}
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Ждёт новый device report после health_check (или первый отчёт). */

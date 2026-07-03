@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -56,9 +57,21 @@ func InitDB(dbLogger logger.Interface) *gorm.DB {
 		log.Fatalf("Ошибка получения sql.DB: %v", err)
 	}
 
-	// Настройка пула соединений.
-	sqlDB.SetMaxOpenConns(25)
-	sqlDB.SetMaxIdleConns(25)
+	// Настройка пула соединений (для VPS с малым числом воркеров).
+	maxOpen := 15
+	maxIdle := 5
+	if v := os.Getenv("DB_MAX_OPEN_CONNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxOpen = n
+		}
+	}
+	if v := os.Getenv("DB_MAX_IDLE_CONNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			maxIdle = n
+		}
+	}
+	sqlDB.SetMaxOpenConns(maxOpen)
+	sqlDB.SetMaxIdleConns(maxIdle)
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)
 
 	log.Println("Подключение к БД успешно установлено")

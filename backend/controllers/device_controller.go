@@ -14,6 +14,7 @@ import (
 type DeviceController struct {
 	CommandService    *service.DeviceCommandService
 	ReportService     *service.DeviceReportService
+	StatusService     *service.DeviceStatusService
 	RequestService    *service.LocationRequestService
 	ReleaseController *AppReleaseController
 }
@@ -21,12 +22,14 @@ type DeviceController struct {
 func NewDeviceController(
 	commandService *service.DeviceCommandService,
 	reportService *service.DeviceReportService,
+	statusService *service.DeviceStatusService,
 	requestService *service.LocationRequestService,
 	releaseController *AppReleaseController,
 ) *DeviceController {
 	return &DeviceController{
 		CommandService:    commandService,
 		ReportService:     reportService,
+		StatusService:     statusService,
 		RequestService:    requestService,
 		ReleaseController: releaseController,
 	}
@@ -194,6 +197,35 @@ func (dc *DeviceController) GetUserHealth(ctx *gin.Context) {
 		"healthy":        len(issues) == 0,
 		"report":         reportMap,
 	})
+}
+
+// GetAdminDevicesStatus — GET /api/admin/devices/status
+// Пакетная сводка GPS + health для всех пользователей (вместо N×2 запросов из админки).
+func (dc *DeviceController) GetAdminDevicesStatus(ctx *gin.Context) {
+	currentUser, ok := getCurrentUserFromContext(ctx)
+	if !ok {
+		return
+	}
+	if !currentUser.IsAdmin {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Требуются права администратора"})
+		return
+	}
+	if dc.StatusService == nil {
+		ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "Сервис статусов не настроен"})
+		return
+	}
+
+	summary, err := dc.StatusService.AllUsersSummary()
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка получения статусов"})
+		return
+	}
+
+	users := make(map[string]service.UserDeviceStatusSummary, len(summary))
+	for id, s := range summary {
+		users[strconv.Itoa(id)] = s
+	}
+	ctx.JSON(http.StatusOK, gin.H{"users": users})
 }
 
 // PostAdminUserCommand — POST /api/admin/users/:id/commands

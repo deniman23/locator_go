@@ -111,12 +111,13 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	deviceReportDAO := dao.NewDeviceReportDAO(dbConn)
 	deviceCommandService := service.NewDeviceCommandService(deviceCommandDAO, locationRequestService)
 	deviceReportService := service.NewDeviceReportService(deviceReportDAO)
+	deviceStatusService := service.NewDeviceStatusService(locationDAO, deviceReportDAO)
 	baseURL := os.Getenv("BASE_URL")
 	if baseURL == "" {
 		baseURL = "http://localhost:8080"
 	}
 	appReleaseController := controllers.NewAppReleaseController("static/releases/manifest.json", "static/releases", baseURL)
-	deviceController := controllers.NewDeviceController(deviceCommandService, deviceReportService, locationRequestService, appReleaseController)
+	deviceController := controllers.NewDeviceController(deviceCommandService, deviceReportService, deviceStatusService, locationRequestService, appReleaseController)
 	locationRequestController := controllers.NewLocationRequestController(locationRequestService, deviceCommandService)
 
 	// Checkpoint и Visit

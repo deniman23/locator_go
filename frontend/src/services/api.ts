@@ -149,6 +149,23 @@ export const deviceApi = {
             user_id: number;
             payload?: Record<string, unknown>;
         }>(`/admin/users/${userId}/device/config`, body, withApiKey(apiKey)),
+
+    /** Пакетный статус всех устройств (1 запрос вместо N×2) */
+    getAllDevicesStatus: (apiKey?: string) =>
+        api.get<{
+            users: Record<
+                string,
+                {
+                    gps: string;
+                    age_seconds?: number;
+                    healthy?: boolean;
+                    last_report_at?: string;
+                    app_version?: string;
+                    platform?: string;
+                    issues: string[];
+                }
+            >;
+        }>('/admin/devices/status', withApiKey(apiKey)),
 };
 
 export const releaseApi = {

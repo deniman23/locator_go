@@ -5,7 +5,7 @@ import type { Visit, Checkpoint, User } from '../types/models';
 import { visitApi, checkpointApi, userApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-const POLL_MS = 10000;
+const POLL_MS = 30_000;
 
 const isVisitActive = (visit: Visit) => visit.end_at == null || visit.end_at === '';
 
@@ -65,7 +65,10 @@ const Dashboard: React.FC = () => {
         };
 
         void fetchActiveVisits();
-        const interval = setInterval(() => void fetchActiveVisits(), POLL_MS);
+        const poll = () => {
+            if (document.visibilityState !== 'hidden') void fetchActiveVisits();
+        };
+        const interval = setInterval(poll, POLL_MS);
         return () => clearInterval(interval);
     }, [apiKey]);
 

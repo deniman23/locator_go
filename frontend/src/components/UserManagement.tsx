@@ -5,6 +5,7 @@ import { deviceApi, locationApi, releaseApi, userApi } from '../services/api';
 import type { User } from '../types/models';
 import { formatDateTime } from '../utils/dateFormat';
 import {
+    fetchAllUserDeviceStatuses,
     fetchUserDeviceStatus,
     type GpsStatus,
     type UserDeviceStatus,
@@ -14,7 +15,7 @@ import {
 import QRCodeDisplay from './QRCodeDisplay';
 import DeviceControlPanel from './DeviceControlPanel';
 
-const STATUS_POLL_MS = 15_000;
+const STATUS_POLL_MS = 45_000;
 
 function formatAge(seconds?: number): string {
     if (seconds == null) return '—';
@@ -94,13 +95,11 @@ const UserManagement: React.FC = () => {
             if (!apiKey || userList.length === 0) return;
 
             setStatusLoading(true);
-            const entries = await Promise.all(
-                userList.map(async (user) => [
-                    user.id,
-                    await fetchUserDeviceStatus(user.id, apiKey),
-                ] as const)
+            const statuses = await fetchAllUserDeviceStatuses(
+                userList.map((u) => u.id),
+                apiKey
             );
-            setDeviceStatus(Object.fromEntries(entries));
+            setDeviceStatus(statuses);
             setStatusLoading(false);
         },
         [apiKey]
@@ -133,11 +132,24 @@ const UserManagement: React.FC = () => {
     useEffect(() => {
         if (!apiKey || users.length === 0) return;
 
-        const timer = window.setInterval(() => {
+        const poll = () => {
+            if (document.visibilityState === 'hidden') return;
             void fetchDeviceStatuses(users);
-        }, STATUS_POLL_MS);
+        };
 
-        return () => window.clearInterval(timer);
+        const timer = window.setInterval(poll, STATUS_POLL_MS);
+
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible') {
+                void fetchDeviceStatuses(users);
+            }
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+
+        return () => {
+            window.clearInterval(timer);
+            document.removeEventListener('visibilitychange', onVisibility);
+        };
     }, [apiKey, users, fetchDeviceStatuses]);
 
     const handleCreateUser = async (e: React.FormEvent) => {
