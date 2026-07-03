@@ -14,15 +14,8 @@ mkdir -p "${APK_RELEASES_DIR:-/var/www/locator_go/static/releases}"
 # Обновляем репозиторий с новыми изменениями
 git pull origin main
 
-# Пересобираем все контейнеры (в том числе и frontend, и backend) и запускаем их в фоне
-# Compose V2: `docker compose` (на многих серверах нет устаревшего бинарника `docker-compose`)
-if docker compose version >/dev/null 2>&1; then
-  docker compose up --build -d
-elif command -v docker-compose >/dev/null 2>&1; then
-  docker-compose up --build -d
-else
-  echo "Ошибка: не найден ни «docker compose», ни «docker-compose»" >&2
-  exit 1
-fi
+# BuildKit/buildx: кэш с лимитом диска (см. scripts/docker-build.sh)
+chmod +x scripts/docker-build.sh
+./scripts/docker-build.sh up
 
 echo "Деплой завершён!"

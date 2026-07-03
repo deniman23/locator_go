@@ -32,14 +32,8 @@ echo "Pull + docker compose..."
 set -euo pipefail
 cd "$1"
 git pull origin main
-if docker compose version >/dev/null 2>&1; then
-  docker compose up --build -d
-elif command -v docker-compose >/dev/null 2>&1; then
-  docker-compose up --build -d
-else
-  echo "docker compose not found" >&2
-  exit 1
-fi
+chmod +x scripts/docker-build.sh
+./scripts/docker-build.sh up
 docker compose ps 2>/dev/null || docker-compose ps
 REMOTE
 

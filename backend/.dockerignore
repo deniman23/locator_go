@@ -1,0 +1,9 @@
+logs/
+*.log
+.git
+.gitignore
+**/*_test.go
+static/qrcode/*
+!static/qrcode/.gitkeep
+static/releases/*.apk
+static/releases/locator-*.apk

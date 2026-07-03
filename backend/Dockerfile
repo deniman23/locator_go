@@ -1,18 +1,24 @@
-# Stage 1: собираем приложение и goose
+# syntax=docker/dockerfile:1
+# Stage 1: собираем приложение и goose (кэш go mod / build через BuildKit)
 FROM golang:1.25-alpine AS builder
 WORKDIR /app
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY . .
-RUN go install github.com/pressly/goose/v3/cmd/goose@latest
-RUN go build -o locator .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go install github.com/pressly/goose/v3/cmd/goose@v3.27.2
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -o locator .
 
 # Stage 2: финальный образ
 FROM alpine:3.18
 
-# утилиты + tzdata для часовых поясов
 RUN apk add --no-cache \
     ca-certificates \
     bash \
@@ -23,16 +29,14 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
-# директории под статику
 RUN mkdir -p /app/static/qrcode /app/static/releases && chmod -R 755 /app/static
 
-# копируем бинарь, goose и миграции
 COPY --from=builder /app/locator /app/locator
 COPY --from=builder /go/bin/goose /usr/local/bin/goose
 COPY migrations /migrations
-COPY static/releases /app/static/releases
+# APK монтируется volume в compose; в образ — только manifest
+COPY static/releases/manifest.json /app/static/releases/manifest.json
 
-# передаём DB_* (переопределяются в docker-compose)
 ENV \
     DB_HOST=db \
     DB_PORT=5432 \
@@ -40,7 +44,6 @@ ENV \
     DB_USER=locator_user \
     DB_PASSWORD=1Y8OEqzBLg \
     DB_SSLMODE=disable
-
 
 CMD ["bash", "-c", "\
     until pg_isready -h $DB_HOST -U $DB_USER -d $DB_NAME; do \

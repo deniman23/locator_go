@@ -20,10 +20,8 @@ fi
 
 if [[ "$NEEDS_BUILD" == true ]]; then
   echo "[$(date -Is)] Rebuild: изменились backend/frontend/docker-compose"
-  docker compose up --build -d
-  # Сборки копят ~1–5 ГБ cache на диске 20 ГБ; чистим сразу после деплоя.
-  docker builder prune -af 2>/dev/null | tail -1 || true
-  docker image prune -af 2>/dev/null | tail -1 || true
+  chmod +x scripts/docker-build.sh
+  ./scripts/docker-build.sh up
 else
   echo "[$(date -Is)] Skip build: только конфиги/доки — docker compose up -d"
   docker compose up -d

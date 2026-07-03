@@ -3,6 +3,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      cache_from:
+        - type=local,src=${BUILDX_CACHE_DIR:-/var/cache/locator-buildx}/backend
+      cache_to:
+        - type=local,dest=${BUILDX_CACHE_DIR:-/var/cache/locator-buildx}/backend,mode=max
     container_name: locator-backend
     ports:
       - "8080:8080"
@@ -55,6 +59,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      cache_from:
+        - type=local,src=${BUILDX_CACHE_DIR:-/var/cache/locator-buildx}/frontend
+      cache_to:
+        - type=local,dest=${BUILDX_CACHE_DIR:-/var/cache/locator-buildx}/frontend,mode=max
     container_name: locator-frontend
     ports:
       - "3000:80"

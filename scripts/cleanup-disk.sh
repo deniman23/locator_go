@@ -10,13 +10,20 @@ log() { echo "$(date -Is) $LOG_TAG $*"; }
 
 log "Старт. Диск до: $(df -h / | awk 'NR==2 {print $3"/"$2" ("$5")"}')"
 
-# Только build cache — самый большой потребитель после сборок
-if command -v docker >/dev/null 2>&1; then
-  log "docker builder prune..."
-  docker builder prune -af 2>&1 | tail -1 || true
+KEEP_STORAGE="${BUILDX_KEEP_STORAGE:-3gb}"
 
-  log "docker image prune (только неиспользуемые образы, volumes не трогаем)..."
-  docker image prune -af 2>&1 | tail -1 || true
+# BuildKit/buildx cache — урезаем до лимита, не удаляем всё (быстрее следующая сборка)
+if command -v docker >/dev/null 2>&1; then
+  if docker buildx version >/dev/null 2>&1; then
+    log "docker buildx prune (keep-storage=$KEEP_STORAGE)..."
+    docker buildx prune -f --keep-storage "$KEEP_STORAGE" 2>&1 | tail -3 || true
+  fi
+
+  log "docker builder prune (keep-storage=$KEEP_STORAGE)..."
+  docker builder prune -f --keep-storage "$KEEP_STORAGE" 2>&1 | tail -3 || true
+
+  log "docker image prune (только dangling)..."
+  docker image prune -f 2>&1 | tail -1 || true
 fi
 
 # Старые логи приложения (старше 30 дней)
