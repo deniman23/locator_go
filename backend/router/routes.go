@@ -75,6 +75,7 @@ func InitRoutes(
 		adminGroup := protectedApiGroup.Group("/admin")
 		{
 			adminGroup.GET("/devices/status", deviceController.GetAdminDevicesStatus)
+			adminGroup.POST("/users/:id/wake", deviceController.PostAdminWakeDevice)
 			adminGroup.POST("/users/:id/commands", deviceController.PostAdminUserCommand)
 			adminGroup.POST("/users/:id/device/config", deviceController.PostAdminUserDeviceConfig)
 			adminGroup.POST("/users/:id/regenerate-qr", userController.PostRegenerateUserQR)

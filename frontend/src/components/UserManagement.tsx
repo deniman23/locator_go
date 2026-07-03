@@ -235,6 +235,35 @@ const UserManagement: React.FC = () => {
         }
     };
 
+    const handleWakeDevice = async (userId: number) => {
+        if (!apiKey) return;
+        setActionUserId(userId);
+        setNotice(userId, 'Отправка пробуждения на устройство…', 60_000);
+        try {
+            const { data } = await deviceApi.wakeDevice(userId, apiKey);
+            setNotice(
+                userId,
+                data.note ??
+                    'Команды в очереди. Ждём контакт с телефоном (до 15 мин на новой версии приложения).'
+            );
+            const baseline = deviceStatus[userId]?.lastReportAt;
+            window.setTimeout(async () => {
+                const fresh = await waitForFreshHealthReport(userId, apiKey, baseline, {
+                    attempts: 20,
+                    intervalMs: 3000,
+                });
+                if (fresh) {
+                    applyUserStatus(userId, fresh);
+                    setNotice(userId, 'Устройство ответило');
+                }
+            }, 0);
+        } catch (err) {
+            setNotice(userId, err instanceof Error ? err.message : 'Не удалось отправить пробуждение');
+        } finally {
+            setActionUserId(null);
+        }
+    };
+
     const handleRequestLocation = async (userId: number) => {
         if (!apiKey) return;
         const baselineAge = deviceStatus[userId]?.ageSeconds;
@@ -563,6 +592,14 @@ const UserManagement: React.FC = () => {
                                                 title="Новый API-ключ и QR (старый перестанет работать)"
                                             >
                                                 Перегенерировать QR
+                                            </button>
+                                            <button
+                                                className="device-action-button"
+                                                onClick={() => handleWakeDevice(user.id)}
+                                                disabled={busy}
+                                                title="Пробудить трекинг на телефоне (Device Owner)"
+                                            >
+                                                Пробудить
                                             </button>
                                             <button
                                                 className="device-action-button"

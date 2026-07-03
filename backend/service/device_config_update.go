@@ -23,6 +23,7 @@ type DeviceConfigUpdateInput struct {
 	HealthReportIntervalSeconds *int64  `json:"health_report_interval_seconds"`
 	AdminPin                    *string `json:"admin_pin"`
 	HiddenFromLauncher          *bool   `json:"hidden_from_launcher"`
+	WakeDevice                  *bool   `json:"wake_device"`
 }
 
 // BuildConfigUpdatePayload валидирует и собирает payload для команды config_update.
@@ -74,6 +75,9 @@ func BuildConfigUpdatePayload(userID int, in DeviceConfigUpdateInput) (map[strin
 	}
 	if in.HiddenFromLauncher != nil {
 		payload["hidden_from_launcher"] = *in.HiddenFromLauncher
+	}
+	if in.WakeDevice != nil && *in.WakeDevice {
+		payload["wake_device"] = true
 	}
 
 	if len(payload) == 0 {

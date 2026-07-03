@@ -166,6 +166,15 @@ export const deviceApi = {
                 }
             >;
         }>('/admin/devices/status', withApiKey(apiKey)),
+
+    wakeDevice: (userId: number, apiKey?: string) =>
+        api.post<{
+            user_id: number;
+            config_command_id: string;
+            health_command_id?: string;
+            location_command_id?: string;
+            note?: string;
+        }>(`/admin/users/${userId}/wake`, {}, withApiKey(apiKey)),
 };
 
 export const releaseApi = {
