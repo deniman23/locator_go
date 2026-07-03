@@ -1,7 +1,5 @@
 package dao
 
-import "time"
-
 // LatestLocationAge — возраст последней GPS-точки пользователя.
 type LatestLocationAge struct {
 	UserID     int
