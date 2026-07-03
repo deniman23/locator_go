@@ -13,6 +13,14 @@ const TRACK_SHORT_GAP_MAX_JUMP_M = 500;
 /** Макс. скачок за разумный интервал (после backfill офлайн-очереди) */
 const TRACK_ABSOLUTE_MAX_JUMP_M = 1500;
 const TRACK_ABSOLUTE_MAX_JUMP_MS = 45 * 60_000;
+/** Типичный интервал periodic (~5 мин): скачок >900 м — сбой сети/GPS, не пешая ходьба */
+const TRACK_PERIODIC_MIN_GAP_MS = 3.5 * 60_000;
+const TRACK_PERIODIC_MAX_GAP_MS = 9 * 60_000;
+const TRACK_PERIODIC_MAX_JUMP_M = 900;
+/** «Островок»: ушёл далеко и вернулся к той же точке (кэш сети, выброс) */
+const ISLAND_RETURN_RADIUS_M = 130;
+const ISLAND_MIN_JUMP_M = 200;
+const MAX_ISLAND_SPAN_MS = 30 * 60_000;
 
 /** Расстояние между двумя точками на сфере, метры */
 export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -39,6 +47,13 @@ export function isTrackOutlierFromPrev(prev: Location, curr: Location): boolean 
     const dtMs = tCurr - tPrev;
     if (dtMs < 0) return true;
     if (dtMs <= TRACK_BATCH_WINDOW_MS) return dist > TRACK_BATCH_MAX_JUMP_M;
+    if (
+        dtMs >= TRACK_PERIODIC_MIN_GAP_MS &&
+        dtMs <= TRACK_PERIODIC_MAX_GAP_MS &&
+        dist > TRACK_PERIODIC_MAX_JUMP_M
+    ) {
+        return true;
+    }
     if (dtMs > 0 && dtMs <= TRACK_ABSOLUTE_MAX_JUMP_MS && dist > TRACK_ABSOLUTE_MAX_JUMP_M) return true;
     if (dtMs <= TRACK_SHORT_GAP_MS) return dist > TRACK_SHORT_GAP_MAX_JUMP_M;
     if (dtMs > 0) return dist / (dtMs / 1000) > TRACK_MAX_SPEED_MPS;
@@ -52,16 +67,22 @@ export function isTrackOutlierFromPrev(prev: Location, curr: Location): boolean 
 export function filterTrackOutliers(locations: Location[]): Location[] {
     const sorted = normalizeLocations(locations);
     if (sorted.length <= 1) return sorted;
-    const out: Location[] = [sorted[0]];
-    for (let i = 1; i < sorted.length; i++) {
-        const curr = sorted[i];
+    const deduped = filterGpsIslands(sorted);
+    const out: Location[] = [deduped[0]];
+    for (let i = 1; i < deduped.length; i++) {
+        const curr = deduped[i];
         const prev = out[out.length - 1];
         const baseline = outlierBaseline(out);
         if (isTrackOutlierFromPrev(prev, curr)) {
+            const returningToBaseline =
+                baseline != null &&
+                haversineMeters(baseline.latitude, baseline.longitude, curr.latitude, curr.longitude) <=
+                    ISLAND_RETURN_RADIUS_M;
             if (
-                !baseline ||
-                haversineMeters(baseline.latitude, baseline.longitude, curr.latitude, curr.longitude) >
-                    TRACK_BATCH_MAX_JUMP_M
+                !returningToBaseline &&
+                (!baseline ||
+                    haversineMeters(baseline.latitude, baseline.longitude, curr.latitude, curr.longitude) >
+                        TRACK_BATCH_MAX_JUMP_M)
             ) {
                 continue;
             }
@@ -88,6 +109,68 @@ function outlierBaseline(kept: Location[]): Location | null {
         break;
     }
     return prev;
+}
+
+/** Одна точка между двумя близкими: телепорт туда-обратно (#6012). */
+function isSandwichOutlier(anchor: Location, mid: Location, next: Location): boolean {
+    const dAnchorMid = haversineMeters(anchor.latitude, anchor.longitude, mid.latitude, mid.longitude);
+    const dMidNext = haversineMeters(mid.latitude, mid.longitude, next.latitude, next.longitude);
+    const dAnchorNext = haversineMeters(anchor.latitude, anchor.longitude, next.latitude, next.longitude);
+    if (dAnchorMid < ISLAND_MIN_JUMP_M || dMidNext < ISLAND_MIN_JUMP_M) return false;
+    return dAnchorNext <= ISLAND_RETURN_RADIUS_M;
+}
+
+/**
+ * Убирает короткие «островки» GPS: несколько точек далеко от якоря, затем возврат
+ * (ночной кэш сети, как #6002–#6003 с возвратом на #6004).
+ */
+export function filterGpsIslands(locations: Location[]): Location[] {
+    if (locations.length < 3) return locations;
+    const out: Location[] = [locations[0]];
+    let i = 1;
+    while (i < locations.length) {
+        const anchor = out[out.length - 1];
+        if (i + 1 < locations.length && isSandwichOutlier(anchor, locations[i], locations[i + 1])) {
+            i += 1;
+            continue;
+        }
+        let j = i;
+        while (j < locations.length) {
+            const d = haversineMeters(
+                anchor.latitude,
+                anchor.longitude,
+                locations[j].latitude,
+                locations[j].longitude,
+            );
+            if (d <= ISLAND_RETURN_RADIUS_M) break;
+            j += 1;
+        }
+        if (j > i && j < locations.length) {
+            const spanMs = locationTimeMs(locations[j]) - locationTimeMs(locations[i]);
+            let allFar = spanMs <= MAX_ISLAND_SPAN_MS;
+            if (allFar) {
+                for (let k = i; k < j; k++) {
+                    const dk = haversineMeters(
+                        anchor.latitude,
+                        anchor.longitude,
+                        locations[k].latitude,
+                        locations[k].longitude,
+                    );
+                    if (dk < ISLAND_MIN_JUMP_M) {
+                        allFar = false;
+                        break;
+                    }
+                }
+            }
+            if (allFar) {
+                i = j;
+                continue;
+            }
+        }
+        out.push(locations[i]);
+        i += 1;
+    }
+    return out;
 }
 
 /** Точки для линии трека: без выбросов, стоянки — одна точка на группу. */

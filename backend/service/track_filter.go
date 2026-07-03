@@ -15,6 +15,13 @@ const (
 	// После backfill офлайн-очереди точки разнесены по 5 мин — иначе 13 км за 10 мин проходят как «пешком».
 	trackAbsoluteMaxJumpM      = 1500.0
 	trackAbsoluteMaxJumpWindow = 45 * time.Minute
+	// Типичный periodic (~5 мин): >900 м — сбой GPS/сети.
+	trackPeriodicMinGap      = 3*time.Minute + 30*time.Second
+	trackPeriodicMaxGap      = 9 * time.Minute
+	trackPeriodicMaxJumpM    = 900.0
+	islandReturnRadiusM      = 130.0
+	islandMinJumpM           = 200.0
+	maxIslandSpan            = 30 * time.Minute
 )
 
 // IsTrackOutlierFromPrev — точка невозможна относительно предыдущей принятой.
@@ -31,6 +38,9 @@ func IsTrackOutlierFromPrev(prev, curr models.Location) bool {
 	}
 	if dt <= trackBatchWindow {
 		return dist > trackBatchMaxJumpM
+	}
+	if dt >= trackPeriodicMinGap && dt <= trackPeriodicMaxGap && dist > trackPeriodicMaxJumpM {
+		return true
 	}
 	if dt > 0 && dt <= trackAbsoluteMaxJumpWindow && dist > trackAbsoluteMaxJumpM {
 		return true
@@ -50,6 +60,7 @@ func FilterTrackOutliers(locs []models.Location) []models.Location {
 	if len(locs) <= 1 {
 		return locs
 	}
+	locs = FilterGpsIslands(locs)
 	out := make([]models.Location, 0, len(locs))
 	out = append(out, locs[0])
 	for i := 1; i < len(locs); i++ {
@@ -57,14 +68,70 @@ func FilterTrackOutliers(locs []models.Location) []models.Location {
 		prev := out[len(out)-1]
 		baseline := trackOutlierBaseline(out)
 		if IsTrackOutlierFromPrev(prev, curr) {
-			if baseline == nil ||
-				haversineDistanceM(baseline.Latitude, baseline.Longitude, curr.Latitude, curr.Longitude) > trackBatchMaxJumpM {
+			returningToBaseline := baseline != nil &&
+				haversineDistanceM(baseline.Latitude, baseline.Longitude, curr.Latitude, curr.Longitude) <= islandReturnRadiusM
+			if !returningToBaseline &&
+				(baseline == nil ||
+					haversineDistanceM(baseline.Latitude, baseline.Longitude, curr.Latitude, curr.Longitude) > trackBatchMaxJumpM) {
 				continue
 			}
 		} else if baseline != nil && IsTrackOutlierFromPrev(*baseline, curr) {
 			continue
 		}
 		out = append(out, curr)
+	}
+	return out
+}
+
+func isSandwichOutlier(anchor, mid, next models.Location) bool {
+	dAM := haversineDistanceM(anchor.Latitude, anchor.Longitude, mid.Latitude, mid.Longitude)
+	dMN := haversineDistanceM(mid.Latitude, mid.Longitude, next.Latitude, next.Longitude)
+	dAN := haversineDistanceM(anchor.Latitude, anchor.Longitude, next.Latitude, next.Longitude)
+	if dAM < islandMinJumpM || dMN < islandMinJumpM {
+		return false
+	}
+	return dAN <= islandReturnRadiusM
+}
+
+// FilterGpsIslands убирает короткие выбросы «туда-обратно» от якорной точки.
+func FilterGpsIslands(locs []models.Location) []models.Location {
+	if len(locs) < 3 {
+		return locs
+	}
+	out := []models.Location{locs[0]}
+	i := 1
+	for i < len(locs) {
+		anchor := out[len(out)-1]
+		if i+1 < len(locs) && isSandwichOutlier(anchor, locs[i], locs[i+1]) {
+			i++
+			continue
+		}
+		j := i
+		for j < len(locs) {
+			d := haversineDistanceM(anchor.Latitude, anchor.Longitude, locs[j].Latitude, locs[j].Longitude)
+			if d <= islandReturnRadiusM {
+				break
+			}
+			j++
+		}
+		if j > i && j < len(locs) {
+			span := locs[j].EffectiveAt().Sub(locs[i].EffectiveAt())
+			allFar := span <= maxIslandSpan
+			if allFar {
+				for k := i; k < j; k++ {
+					if haversineDistanceM(anchor.Latitude, anchor.Longitude, locs[k].Latitude, locs[k].Longitude) < islandMinJumpM {
+						allFar = false
+						break
+					}
+				}
+			}
+			if allFar {
+				i = j
+				continue
+			}
+		}
+		out = append(out, locs[i])
+		i++
 	}
 	return out
 }
