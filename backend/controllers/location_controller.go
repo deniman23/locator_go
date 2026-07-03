@@ -63,11 +63,12 @@ func newLocationSnapshot(loc *models.Location) locationSnapshot {
 
 // LocationController отвечает за обработку запросов, связанных с локациями.
 type LocationController struct {
-	Service        *service.LocationService
-	RequestService *service.LocationRequestService
-	Publisher      *messaging.Publisher
-	RoutingBaseURL string // OSRM/совместимый инстанс, без завершающего /; пусто — эндпоинт match недоступен
-	HTTPRouting    *http.Client
+	Service         *service.LocationService
+	RequestService  *service.LocationRequestService
+	CommandService  *service.DeviceCommandService
+	Publisher       *messaging.Publisher
+	RoutingBaseURL  string // OSRM/совместимый инстанс, без завершающего /; пусто — эндпоинт match недоступен
+	HTTPRouting     *http.Client
 }
 
 // NewLocationController создаёт новый экземпляр контроллера для работы с локациями.
@@ -75,12 +76,14 @@ type LocationController struct {
 func NewLocationController(
 	locationService *service.LocationService,
 	requestService *service.LocationRequestService,
+	commandService *service.DeviceCommandService,
 	publisher *messaging.Publisher,
 	routingBaseURL string,
 ) *LocationController {
 	return &LocationController{
 		Service:        locationService,
 		RequestService: requestService,
+		CommandService: commandService,
 		Publisher:      publisher,
 		RoutingBaseURL: strings.TrimSpace(routingBaseURL),
 		HTTPRouting:    &http.Client{Timeout: 60 * time.Second},
@@ -219,33 +222,28 @@ func (lc *LocationController) PostLocation(ctx *gin.Context) {
 		return
 	}
 
-	if requestID != "" && lc.RequestService != nil {
-		if err := lc.RequestService.Complete(requestID, targetUserID); err != nil {
-			switch err {
-			case service.ErrLocationRequestNotFound:
-				ctx.JSON(http.StatusNotFound, gin.H{"error": "request_id не найден"})
-			case service.ErrLocationRequestWrongUser:
-				ctx.JSON(http.StatusForbidden, gin.H{"error": "request_id принадлежит другому пользователю"})
-			case service.ErrLocationRequestNotPending:
-				ctx.JSON(http.StatusConflict, gin.H{"error": "запрос уже обработан или просрочен"})
-			default:
-				ctx.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка завершения запроса"})
-			}
-			return
-		}
-	}
-
-	// Формируем событие для RabbitMQ на основе новой локации.
+	// Сначала публикуем событие для визитов — даже если завершение request_id не удалось.
 	event := models.LocationEvent{
 		UserID:     targetUserID,
 		Latitude:   req.Latitude,
 		Longitude:  req.Longitude,
 		OccurredAt: location.EffectiveAt(),
+		Source:     source,
 	}
-	// Публикуем событие в RabbitMQ.
 	if err := lc.Publisher.PublishJSON(event); err != nil {
-		// Ошибку публикации можно залогировать, но не блокировать ответ клиенту.
-		// log.Printf("Ошибка публикации события: %v", err)
+		log.Printf("[PostLocation] Ошибка публикации события userID=%d: %v", targetUserID, err)
+	}
+
+	if requestID != "" {
+		var completeErr error
+		if lc.CommandService != nil {
+			completeErr = lc.CommandService.CompleteLinkedLocationRequest(requestID, targetUserID)
+		} else if lc.RequestService != nil {
+			completeErr = lc.RequestService.Complete(requestID, targetUserID)
+		}
+		if completeErr != nil {
+			log.Printf("[PostLocation] request_id=%s не завершён (локация сохранена): %v", requestID, completeErr)
+		}
 	}
 
 	ctx.JSON(http.StatusOK, location)

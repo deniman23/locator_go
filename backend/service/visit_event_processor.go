@@ -87,7 +87,7 @@ func (vep *VisitEventProcessor) processCheckpoint(cp models.Checkpoint, event mo
 
 	if inside {
 		state.clearPendingExit()
-		return vep.handleInside(event.UserID, cp.ID, activeVisit, state, now)
+		return vep.handleInside(event.UserID, cp.ID, activeVisit, state, now, event.Source)
 	}
 
 	state.clearPendingEnter()
@@ -104,18 +104,28 @@ func (vep *VisitEventProcessor) getActiveVisit(userID, checkpointID int) (*model
 }
 
 // handleInside: при отсутствии визита ждём устойчивого нахождения в зоне, затем создаём визит.
-func (vep *VisitEventProcessor) handleInside(userID, checkpointID int, activeVisit *models.Visit, state *geofencePendingState, now time.Time) error {
+// on_demand (пинг менеджера) — визит сразу, без ожидания grace.
+func (vep *VisitEventProcessor) handleInside(
+	userID, checkpointID int,
+	activeVisit *models.Visit,
+	state *geofencePendingState,
+	now time.Time,
+	source string,
+) error {
 	if activeVisit != nil {
 		log.Printf("[handleInside] Пользователь %d в зоне чекпоинта %d, визит уже активен", userID, checkpointID)
 		return nil
 	}
 
-	enterGrace := geofenceEnterGraceSeconds()
-	if !state.pendingEnterElapsed(now, enterGrace) {
-		state.markPendingEnter(now)
-		log.Printf("[handleInside] Ожидание подтверждения входа userID=%d checkpointID=%d (grace=%ds)",
-			userID, checkpointID, enterGrace)
-		return nil
+	onDemand := source == models.LocationSourceOnDemand
+	if !onDemand {
+		enterGrace := geofenceEnterGraceSeconds()
+		if !state.pendingEnterElapsed(now, enterGrace) {
+			state.markPendingEnter(now)
+			log.Printf("[handleInside] Ожидание подтверждения входа userID=%d checkpointID=%d (grace=%ds)",
+				userID, checkpointID, enterGrace)
+			return nil
+		}
 	}
 
 	state.clearPendingEnter()
@@ -124,8 +134,11 @@ func (vep *VisitEventProcessor) handleInside(userID, checkpointID int, activeVis
 		log.Printf("[handleInside] Ошибка начала визита для userID=%d, checkpointID=%d: %v", userID, checkpointID, err)
 		return err
 	}
-	log.Printf("[handleInside] Начат визит для userID=%d checkpointID=%d после %ds в зоне",
-		userID, checkpointID, enterGrace)
+	if onDemand {
+		log.Printf("[handleInside] Начат визит (on_demand) userID=%d checkpointID=%d", userID, checkpointID)
+	} else {
+		log.Printf("[handleInside] Начат визит для userID=%d checkpointID=%d после grace", userID, checkpointID)
+	}
 	return nil
 }
 

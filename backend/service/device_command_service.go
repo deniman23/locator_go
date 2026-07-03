@@ -156,6 +156,40 @@ func (svc *DeviceCommandService) Ack(commandID string, userID int, status, messa
 	return nil
 }
 
+// CompleteLinkedLocationRequest завершает запрос координат: телефон может прислать
+// request_id из location_requests или id команды device (старые клиенты).
+func (svc *DeviceCommandService) CompleteLinkedLocationRequest(requestID string, userID int) error {
+	if requestID == "" || svc.LocationRequests == nil {
+		return nil
+	}
+	err := svc.LocationRequests.Complete(requestID, userID)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, ErrLocationRequestNotFound) {
+		return err
+	}
+	cmd, cmdErr := svc.DAO.GetByID(requestID)
+	if errors.Is(cmdErr, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if cmdErr != nil {
+		return cmdErr
+	}
+	if cmd.UserID != userID || cmd.Type != models.DeviceCommandTypeLocationRequest {
+		return err
+	}
+	payload, pErr := CommandPayloadMap(cmd)
+	if pErr != nil {
+		return err
+	}
+	rid, _ := payload["request_id"].(string)
+	if rid == "" {
+		return err
+	}
+	return svc.LocationRequests.Complete(rid, userID)
+}
+
 // CommandPayloadMap разбирает JSON payload команды в map.
 func CommandPayloadMap(cmd *models.DeviceCommand) (map[string]interface{}, error) {
 	if cmd == nil || len(cmd.Payload) == 0 {

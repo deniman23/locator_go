@@ -125,7 +125,7 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	visitDAO := dao.NewVisitDAO(dbConn)
 	travelSegmentService := service.NewTravelSegmentService(locationDAO, checkpointService)
 	visitService := service.NewVisitService(visitDAO, travelSegmentService)
-	locationController := controllers.NewLocationController(locationService, locationRequestService, publisher, routingBase)
+	locationController := controllers.NewLocationController(locationService, locationRequestService, deviceCommandService, publisher, routingBase)
 	checkpointController := controllers.NewCheckpointController(
 		checkpointService, locationService, visitService, publisher,
 	)

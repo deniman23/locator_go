@@ -10,4 +10,5 @@ type LocationEvent struct {
 	Latitude     float64   `json:"latitude"`
 	Longitude    float64   `json:"longitude"`
 	OccurredAt   time.Time `json:"occurred_at"`
+	Source       string    `json:"source,omitempty"`
 }
