@@ -247,15 +247,35 @@ const UserManagement: React.FC = () => {
                     'Команды в очереди. Ждём контакт с телефоном (до 15 мин на новой версии приложения).'
             );
             const baseline = deviceStatus[userId]?.lastReportAt;
+            const baselineAge = deviceStatus[userId]?.ageSeconds;
             window.setTimeout(async () => {
                 const fresh = await waitForFreshHealthReport(userId, apiKey, baseline, {
-                    attempts: 20,
-                    intervalMs: 3000,
+                    attempts: 15,
+                    intervalMs: 2000,
                 });
                 if (fresh) {
                     applyUserStatus(userId, fresh);
-                    setNotice(userId, 'Устройство ответило');
+                    setNotice(userId, 'Устройство ответило, трекинг активен');
+                    return;
                 }
+                try {
+                    const loc = await locationApi.getByUserId(userId, apiKey);
+                    const improved =
+                        loc.data.age_seconds != null &&
+                        (baselineAge == null || loc.data.age_seconds < baselineAge - 5);
+                    if (improved) {
+                        const status = await fetchUserDeviceStatus(userId, apiKey);
+                        applyUserStatus(userId, status);
+                        setNotice(userId, 'GPS обновлён');
+                        return;
+                    }
+                } catch {
+                    // ignore
+                }
+                setNotice(
+                    userId,
+                    'Телефон не ответил. Разблокировки мало — пусть наберут *#*#2580#*#* в звонилке (откроется приложение) или перезагрузят телефон.'
+                );
             }, 0);
         } catch (err) {
             setNotice(userId, err instanceof Error ? err.message : 'Не удалось отправить пробуждение');
