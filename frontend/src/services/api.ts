@@ -135,7 +135,20 @@ export const deviceApi = {
             issue_count: number;
             healthy: boolean;
             report: Record<string, unknown>;
-        }>(`/users/${userId}/health`, withApiKey(apiKey))
+        }>(`/users/${userId}/health`, withApiKey(apiKey)),
+
+    pushDeviceConfig: (
+        userId: number,
+        body: Record<string, unknown>,
+        apiKey?: string
+    ) =>
+        api.post<{
+            command_id: string;
+            type: string;
+            status: string;
+            user_id: number;
+            payload?: Record<string, unknown>;
+        }>(`/admin/users/${userId}/device/config`, body, withApiKey(apiKey)),
 };
 
 export const releaseApi = {

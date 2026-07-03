@@ -242,6 +242,59 @@ func (dc *DeviceController) PostAdminUserCommand(ctx *gin.Context) {
 	})
 }
 
+// PostAdminUserDeviceConfig — POST /api/admin/users/:id/device/config
+// Валидированный config_update (ключ, интервалы, PIN, пауза трекинга, скрытие из лаунчера).
+func (dc *DeviceController) PostAdminUserDeviceConfig(ctx *gin.Context) {
+	currentUser, ok := getCurrentUserFromContext(ctx)
+	if !ok {
+		return
+	}
+	if !currentUser.IsAdmin {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Требуются права администратора"})
+		return
+	}
+
+	userID, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil || userID <= 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID пользователя"})
+		return
+	}
+
+	var body service.DeviceConfigUpdateInput
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Некорректное тело запроса"})
+		return
+	}
+
+	payload, err := service.BuildConfigUpdatePayload(userID, body)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrDeviceConfigUpdateEmpty):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrDeviceConfigUpdateInvalid):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Некорректные параметры (интервалы, PIN или URL)"})
+		default:
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	cmd, err := dc.CommandService.EnqueueCommand(userID, models.DeviceCommandTypeConfigUpdate, payload)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось создать команду"})
+		return
+	}
+
+	cmdPayload, _ := service.CommandPayloadMap(cmd)
+	ctx.JSON(http.StatusAccepted, gin.H{
+		"command_id": cmd.ID,
+		"type":       cmd.Type,
+		"status":     cmd.Status,
+		"user_id":    cmd.UserID,
+		"payload":    cmdPayload,
+	})
+}
+
 // PostPublishAppUpdate — POST /api/admin/releases/publish-update/:user_id
 // Команда app_update из manifest.json на устройство.
 func (dc *DeviceController) PostPublishAppUpdate(ctx *gin.Context) {

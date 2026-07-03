@@ -12,6 +12,7 @@ import {
     waitForFreshLocation,
 } from '../utils/userDeviceStatus';
 import QRCodeDisplay from './QRCodeDisplay';
+import DeviceControlPanel from './DeviceControlPanel';
 
 const STATUS_POLL_MS = 15_000;
 
@@ -75,6 +76,7 @@ const UserManagement: React.FC = () => {
     const [actionUserId, setActionUserId] = useState<number | null>(null);
     const [actionNotice, setActionNotice] = useState<Record<number, string>>({});
     const [expandedReportUserId, setExpandedReportUserId] = useState<number | null>(null);
+    const [devicePanelUser, setDevicePanelUser] = useState<User | null>(null);
 
     const setNotice = (userId: number, text: string, clearMs = 8000) => {
         setActionNotice((prev) => ({ ...prev, [userId]: text }));
@@ -321,6 +323,16 @@ const UserManagement: React.FC = () => {
                 />
             )}
 
+            {devicePanelUser && apiKey && (
+                <DeviceControlPanel
+                    user={devicePanelUser}
+                    apiKey={apiKey}
+                    initialStatus={deviceStatus[devicePanelUser.id]}
+                    onClose={() => setDevicePanelUser(null)}
+                    onStatusUpdate={(status) => applyUserStatus(devicePanelUser.id, status)}
+                />
+            )}
+
             {regenerateResult && (
                 <div className="qr-code-modal">
                     <div className="qr-code-container">
@@ -547,6 +559,14 @@ const UserManagement: React.FC = () => {
                                                 title="Запросить координаты с телефона"
                                             >
                                                 GPS
+                                            </button>
+                                            <button
+                                                className="device-action-button"
+                                                onClick={() => setDevicePanelUser(user)}
+                                                disabled={busy}
+                                                title="Данные телефона и удалённые настройки"
+                                            >
+                                                Устройство
                                             </button>
                                             <button
                                                 className="device-action-button"

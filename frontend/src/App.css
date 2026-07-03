@@ -1555,3 +1555,126 @@ main {
 .visits-list tr:nth-child(even) {
   background-color: #f9f9f9;
 }
+
+/* Панель управления устройством */
+.device-control-modal .device-control-container {
+  background: #fff;
+  border-radius: 8px;
+  max-width: 720px;
+  width: calc(100% - 2rem);
+  max-height: calc(100vh - 2rem);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.device-control-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.device-control-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #2c3e50;
+}
+
+.device-control-notice {
+  margin: 0;
+  padding: 0.65rem 1.25rem;
+  background: #eef6ff;
+  color: #1a5276;
+  font-size: 0.9rem;
+}
+
+.device-control-body {
+  overflow-y: auto;
+  padding: 1rem 1.25rem 1.25rem;
+  display: grid;
+  gap: 1.25rem;
+}
+
+@media (min-width: 700px) {
+  .device-control-body {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.device-control-section h4 {
+  margin: 0 0 0.75rem;
+  color: #2c3e50;
+  font-size: 0.95rem;
+}
+
+.device-control-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.device-control-section-head h4 {
+  margin: 0;
+}
+
+.device-control-dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 0.75rem;
+  font-size: 0.88rem;
+}
+
+.device-control-dl dt {
+  color: #666;
+  font-weight: 500;
+}
+
+.device-control-dl dd {
+  margin: 0;
+  color: #222;
+}
+
+.device-control-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  color: #666;
+  line-height: 1.4;
+}
+
+.device-control-form .form-group {
+  margin-bottom: 0.75rem;
+}
+
+.device-control-form .form-group label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+  color: #444;
+}
+
+.device-control-form input[type='number'],
+.device-control-form input[type='password'],
+.device-control-form input[type='text'] {
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.device-control-check {
+  margin-bottom: 0.75rem;
+}
+
+.device-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
