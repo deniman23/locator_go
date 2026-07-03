@@ -20,6 +20,7 @@ var (
 )
 
 const deviceCommandPendingTTL = 15 * time.Minute
+const deviceCommandAppUpdateTTL = 48 * time.Hour
 
 var allowedDeviceCommandTypes = map[string]struct{}{
 	models.DeviceCommandTypeLocationRequest: {},
@@ -39,8 +40,17 @@ func NewDeviceCommandService(dao *dao.DeviceCommandDAO, locationRequests *Locati
 }
 
 func (svc *DeviceCommandService) expireStale() error {
-	cutoff := time.Now().Add(-deviceCommandPendingTTL)
-	return svc.DAO.ExpirePendingOlderThan(cutoff)
+	now := time.Now()
+	if err := svc.DAO.ExpirePendingOlderThanExceptType(
+		now.Add(-deviceCommandPendingTTL),
+		models.DeviceCommandTypeAppUpdate,
+	); err != nil {
+		return err
+	}
+	return svc.DAO.ExpirePendingOlderThanType(
+		now.Add(-deviceCommandAppUpdateTTL),
+		models.DeviceCommandTypeAppUpdate,
+	)
 }
 
 // EnqueueCommand ставит команду в очередь для пользователя.

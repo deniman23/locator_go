@@ -74,11 +74,27 @@ func (dao *DeviceCommandDAO) MarkProgress(id, ackStatus, ackMessage string, at t
 }
 
 func (dao *DeviceCommandDAO) ExpirePendingOlderThan(cutoff time.Time) error {
-	return dao.DB.Model(&models.DeviceCommand{}).
+	return dao.ExpirePendingOlderThanExceptType(cutoff, "")
+}
+
+func (dao *DeviceCommandDAO) ExpirePendingOlderThanExceptType(cutoff time.Time, exceptType string) error {
+	q := dao.DB.Model(&models.DeviceCommand{}).
 		Where("status IN ? AND created_at < ?", []string{
 			models.DeviceCommandStatusPending,
 			models.DeviceCommandStatusDelivered,
-		}, cutoff).
+		}, cutoff)
+	if exceptType != "" {
+		q = q.Where("type <> ?", exceptType)
+	}
+	return q.Update("status", models.DeviceCommandStatusExpired).Error
+}
+
+func (dao *DeviceCommandDAO) ExpirePendingOlderThanType(cutoff time.Time, cmdType string) error {
+	return dao.DB.Model(&models.DeviceCommand{}).
+		Where("status IN ? AND created_at < ? AND type = ?", []string{
+			models.DeviceCommandStatusPending,
+			models.DeviceCommandStatusDelivered,
+		}, cutoff, cmdType).
 		Update("status", models.DeviceCommandStatusExpired).Error
 }
 

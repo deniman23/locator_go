@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	defaultMaxPeriodicAccuracyM = 80.0
-	defaultMaxOnDemandAccuracyM = 150.0
+	defaultMaxPeriodicAccuracyM = 150.0
+	defaultMaxOnDemandAccuracyM = 200.0
 	defaultStationaryPoorAccM     = 50.0
 	defaultStationaryRadiusM      = 25.0
 )
