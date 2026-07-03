@@ -80,7 +80,7 @@ func buildOutsideSegments(
 		}
 
 		if !inside {
-			t := loc.CreatedAt.UTC()
+			t := loc.EffectiveAt().UTC()
 			if segmentStart == nil {
 				segmentStart = &t
 			}

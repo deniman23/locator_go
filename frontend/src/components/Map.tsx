@@ -18,25 +18,37 @@ import { useAuth } from '../context/AuthContext';
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 import { formatDateTime, formatPeriodRange } from '../utils/dateFormat';
+import { formatDuration } from '../utils/durationFormat';
 import {
     buildCleanTrackPolyline,
     buildLocationClusters,
+    clusterDurationSeconds,
     compareMinskDateTimes,
     filterLocationsInPeriod,
     filterTrackOutliers,
+    isSignificantStay,
     isValidMapLocation,
     minskDayBounds,
+    STAY_CLUSTER_RADIUS_M,
     type LocationCluster,
 } from '../utils/locationTrack';
 
-/** Радиус «стоянки»: точки ближе считаются одной локацией (домашний GPS-дрейф). */
-const STATIONARY_CLUSTER_RADIUS_M = 50;
-
 type MapMarkerPoint = Location & {
     clusterSize?: number;
-    clusterFrom?: string;
-    clusterTo?: string;
+    clusterFromMs?: number;
+    clusterToMs?: number;
+    durationSeconds?: number;
+    isStay?: boolean;
 };
+
+function stayMarkerRadius(durationSec: number, isStay: boolean): number {
+    if (!isStay) return 6;
+    const minR = 10;
+    const maxR = 22;
+    const maxDur = 4 * 3600;
+    const t = Math.min(1, durationSec / maxDur);
+    return minR + Math.round(t * (maxR - minR));
+}
 
 const DefaultIcon = L.icon({
     iconUrl: icon,
@@ -94,7 +106,7 @@ const MapUpdater = ({
 };
 
 type TrackMode = 'none' | 'polyline';
-type MarkerMode = 'all' | 'merged5m';
+type MarkerMode = 'all' | 'stays';
 
 const MapComponent: React.FC = () => {
     const { apiKey, user } = useAuth();
@@ -113,7 +125,7 @@ const MapComponent: React.FC = () => {
     const [fromTime, setFromTime] = useState(day0.from);
     const [toTime, setToTime] = useState(day0.to);
 
-    const [markerMode, setMarkerMode] = useState<MarkerMode>('all');
+    const [markerMode, setMarkerMode] = useState<MarkerMode>('stays');
     const [trackMode, setTrackMode] = useState<TrackMode>('polyline');
     const [useRoadMatch, setUseRoadMatch] = useState(false);
     const [roadCoords, setRoadCoords] = useState<[number, number][] | null>(null);
@@ -362,7 +374,7 @@ const MapComponent: React.FC = () => {
         const m = new Map<number, LocationCluster[]>();
         for (const uid of selectedUserIds) {
             const locs = trackLocations.filter(l => l.user_id === uid);
-            m.set(uid, buildLocationClusters(locs, STATIONARY_CLUSTER_RADIUS_M));
+            m.set(uid, buildLocationClusters(locs));
         }
         return m;
     }, [trackLocations, selectedUserIds]);
@@ -372,27 +384,34 @@ const MapComponent: React.FC = () => {
         const out: MapMarkerPoint[] = [];
         for (const clusters of clustersByUser.values()) {
             for (const cluster of clusters) {
-                const rep = cluster.representative;
-                if (cluster.points.length > 1) {
-                    out.push({
-                        ...rep,
-                        clusterSize: cluster.points.length,
-                        clusterFrom: cluster.points[0].created_at,
-                        clusterTo: cluster.points[cluster.points.length - 1].created_at,
-                    });
-                } else {
-                    out.push(rep);
-                }
+                const durSec = clusterDurationSeconds(cluster);
+                const stay = isSignificantStay(cluster);
+                out.push({
+                    ...cluster.representative,
+                    clusterSize: cluster.points.length,
+                    clusterFromMs: cluster.fromMs,
+                    clusterToMs: cluster.toMs,
+                    durationSeconds: durSec,
+                    isStay: stay,
+                });
             }
         }
         return out;
-    }, [visibleLocations, markerMode, clustersByUser]);
+    }, [trackLocations, markerMode, clustersByUser]);
+
+    const significantStayCount = useMemo(() => {
+        let n = 0;
+        for (const clusters of clustersByUser.values()) {
+            n += clusters.filter(isSignificantStay).length;
+        }
+        return n;
+    }, [clustersByUser]);
 
     const gpsPolylinesByUser = useMemo(() => {
         const m = new Map<number, [number, number][]>();
         for (const uid of selectedUserIds) {
             const locs = trackLocations.filter(l => l.user_id === uid);
-            const line = buildCleanTrackPolyline(locs, STATIONARY_CLUSTER_RADIUS_M);
+            const line = buildCleanTrackPolyline(locs);
             if (line.length >= 2) {
                 m.set(uid, line);
             }
@@ -602,11 +621,11 @@ const MapComponent: React.FC = () => {
                                 <input
                                     type="radio"
                                     name="markerMode"
-                                    checked={markerMode === 'merged5m'}
-                                    onChange={() => setMarkerMode('merged5m')}
+                                    checked={markerMode === 'stays'}
+                                    onChange={() => setMarkerMode('stays')}
                                 />
                                 <span>
-                                    Стоянки одной точкой (радиус ~{STATIONARY_CLUSTER_RADIUS_M}&nbsp;м)
+                                    Стоянки (радиус ~{STAY_CLUSTER_RADIUS_M}&nbsp;м, с длительностью)
                                 </span>
                             </label>
                         </div>
@@ -632,6 +651,56 @@ const MapComponent: React.FC = () => {
                             </label>
                         </div>
                     </div>
+
+                    {markerMode === 'stays' && selectedUserIds.length > 0 && (
+                        <div className="filter-section map-stays-section">
+                            <div className="section-header">
+                                <h3>Стоянки за период</h3>
+                            </div>
+                            {selectedUserIds.map(uid => {
+                                const userName = allUsers.find(u => u.id === uid)?.name ?? `ID ${uid}`;
+                                const stays = (clustersByUser.get(uid) ?? [])
+                                    .filter(isSignificantStay)
+                                    .sort((a, b) => b.fromMs - a.fromMs);
+                                if (!stays.length) {
+                                    return (
+                                        <p key={uid} className="map-stays-empty">
+                                            {selectedUserIds.length > 1 ? `${userName}: ` : ''}
+                                            нет стоянок ≥5 мин
+                                        </p>
+                                    );
+                                }
+                                return (
+                                    <div key={uid} className="map-stays-user-block">
+                                        {selectedUserIds.length > 1 && (
+                                            <div
+                                                className="map-stays-user-name"
+                                                style={{ color: getUserColor(uid) }}
+                                            >
+                                                {userName}
+                                            </div>
+                                        )}
+                                        <ul className="map-stay-list">
+                                            {stays.map((cluster, i) => (
+                                                <li key={`${uid}-${cluster.fromMs}-${i}`} className="map-stay-item">
+                                                    <span className="map-stay-duration">
+                                                        {formatDuration(clusterDurationSeconds(cluster))}
+                                                    </span>
+                                                    <span className="map-stay-time">
+                                                        {formatDateTime(new Date(cluster.fromMs))} —{' '}
+                                                        {formatDateTime(new Date(cluster.toMs))}
+                                                    </span>
+                                                    <span className="map-stay-meta">
+                                                        {cluster.points.length} GPS-точек
+                                                    </span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
             </aside>
 
@@ -735,33 +804,38 @@ const MapComponent: React.FC = () => {
                             const color = getUserColor(loc.user_id);
                             const userName =
                                 allUsers.find(u => u.id === loc.user_id)?.name || `ID: ${loc.user_id}`;
-                            const isStationary = (loc.clusterSize ?? 0) > 1;
+                            const isStay = loc.isStay === true;
+                            const radius = isStay
+                                ? stayMarkerRadius(loc.durationSeconds ?? 0, true)
+                                : stayMarkerRadius(0, false);
                             const markerKey = `${loc.user_id}-${loc.id}-${loc.created_at}-${loc.latitude}-${loc.longitude}-${index}`;
                             return (
                                 <CircleMarker
                                     key={markerKey}
                                     center={[loc.latitude, loc.longitude]}
-                                    radius={isStationary ? 14 : 8}
+                                    radius={radius}
                                     pathOptions={{
                                         color,
                                         fillColor: color,
-                                        fillOpacity: isStationary ? 0.55 : 0.8,
-                                        weight: isStationary ? 3 : 2,
+                                        fillOpacity: isStay ? 0.55 : 0.75,
+                                        weight: isStay ? 3 : 2,
                                     }}
                                 >
                                     <Popup>
                                         <div className="popup-content">
                                             <strong>{userName}</strong>
-                                            {isStationary ? (
+                                            {isStay ? (
                                                 <>
-                                                    <div className="popup-stationary-label">Стоянка</div>
-                                                    <div>
-                                                        {loc.clusterSize} GPS-точек в радиусе ~
-                                                        {STATIONARY_CLUSTER_RADIUS_M} м
+                                                    <div className="popup-stationary-label">
+                                                        Стоянка · {formatDuration(loc.durationSeconds ?? 0)}
                                                     </div>
                                                     <div>
-                                                        {formatDateTime(loc.clusterFrom)} —{' '}
-                                                        {formatDateTime(loc.clusterTo)}
+                                                        {formatDateTime(new Date(loc.clusterFromMs!))} —{' '}
+                                                        {formatDateTime(new Date(loc.clusterToMs!))}
+                                                    </div>
+                                                    <div className="popup-meta">
+                                                        {loc.clusterSize} GPS-точек в радиусе ~
+                                                        {STAY_CLUSTER_RADIUS_M} м
                                                     </div>
                                                 </>
                                             ) : (
@@ -799,8 +873,18 @@ const MapComponent: React.FC = () => {
                             Чекпоинты: <strong>{checkpoints.length}</strong>
                         </span>
                         <span className="status-item">
-                            На карте: <strong>{showMarkers ? displayMarkers.length : 0}</strong> / всего выбр.:{' '}
-                            <strong>{trackLocations.length}</strong>
+                            {markerMode === 'stays' ? (
+                                <>
+                                    Стоянок: <strong>{significantStayCount}</strong> · на карте:{' '}
+                                    <strong>{showMarkers ? displayMarkers.length : 0}</strong> · GPS:{' '}
+                                    <strong>{trackLocations.length}</strong>
+                                </>
+                            ) : (
+                                <>
+                                    На карте: <strong>{showMarkers ? displayMarkers.length : 0}</strong> / всего
+                                    выбр.: <strong>{trackLocations.length}</strong>
+                                </>
+                            )}
                             {hiddenOutlierCount > 0 && (
                                 <> (скрыто выбросов: {hiddenOutlierCount})</>
                             )}{' '}

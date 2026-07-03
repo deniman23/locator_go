@@ -11,6 +11,8 @@ const (
 	defaultGeofenceExitGraceSeconds  = 90
 	defaultGeofenceEnterGraceSeconds = 30
 	defaultGeofenceMinVisitSeconds   = 60
+	defaultGeofenceFarExitMeters     = 300.0
+	defaultGeofenceStaleGapSeconds   = 600
 )
 
 func geofenceExitBufferMeters() float64 {
@@ -37,6 +39,22 @@ func geofenceMinVisitSeconds() int {
 	return geofenceSecondsEnv("GEOFENCE_MIN_VISIT_SECONDS", defaultGeofenceMinVisitSeconds)
 }
 
+func geofenceFarExitMeters() float64 {
+	s := strings.TrimSpace(os.Getenv("GEOFENCE_FAR_EXIT_METERS"))
+	if s == "" {
+		return defaultGeofenceFarExitMeters
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || v < 0 {
+		return defaultGeofenceFarExitMeters
+	}
+	return v
+}
+
+func geofenceStaleGapSeconds() int {
+	return geofenceSecondsEnv("GEOFENCE_STALE_GAP_SECONDS", defaultGeofenceStaleGapSeconds)
+}
+
 func geofenceSecondsEnv(key string, fallback int) int {
 	s := strings.TrimSpace(os.Getenv(key))
 	if s == "" {
@@ -56,4 +74,12 @@ func geofenceInside(distance, radius float64, hasActiveVisit bool) bool {
 		return distance <= radius+geofenceExitBufferMeters()
 	}
 	return distance <= radius
+}
+
+// geofenceFarOutside — явный уход далеко от чекпоинта (не путать с дрожанием GPS у границы).
+func geofenceFarOutside(distance, radius float64, hasActiveVisit bool) bool {
+	if !hasActiveVisit {
+		return false
+	}
+	return distance > radius+geofenceExitBufferMeters()+geofenceFarExitMeters()
 }

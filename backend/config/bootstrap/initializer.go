@@ -131,7 +131,7 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	)
 	visitController := controllers.NewVisitController(visitService)
 
-	visitEventProcessor := service.NewVisitEventProcessor(checkpointService, visitService)
+	visitEventProcessor := service.NewVisitEventProcessor(checkpointService, visitService, locationDAO)
 	visitEventConsumer := messaging.NewConsumer(rmqClient, "location_events")
 	if err := visitEventConsumer.Consume(visitEventProcessor.ProcessEvent); err != nil {
 		return nil, fmt.Errorf("visit event consumer: %w", err)

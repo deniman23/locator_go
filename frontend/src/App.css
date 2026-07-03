@@ -690,6 +690,59 @@ main {
   border-radius: 4px;
 }
 
+.map-stays-section .map-stays-empty {
+  margin: 0;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.map-stays-user-block + .map-stays-user-block {
+  margin-top: 12px;
+}
+
+.map-stays-user-name {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.map-stay-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.map-stay-item {
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.map-stay-duration {
+  display: block;
+  font-weight: 700;
+  color: #1d4ed8;
+  font-size: 13px;
+}
+
+.map-stay-time {
+  display: block;
+  color: #374151;
+}
+
+.map-stay-meta {
+  display: block;
+  color: #9ca3af;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
 .popup-coords {
   color: #6b7280;
   font-size: 11px;

@@ -93,7 +93,7 @@ function outlierBaseline(kept: Location[]): Location | null {
 /** Точки для линии трека: без выбросов, стоянки — одна точка на группу. */
 export function buildCleanTrackPolyline(
     locations: Location[],
-    stationaryRadiusM: number
+    stationaryRadiusM: number = STAY_CLUSTER_RADIUS_M,
 ): [number, number][] {
     const cleaned = filterTrackOutliers(locations);
     if (cleaned.length === 0) return [];
@@ -109,12 +109,20 @@ export function sortLocationsByCreatedAsc(locations: Location[]): Location[] {
     );
 }
 
+/** Радиус стоянки на карте: GPS-дрейф дома/офиса */
+export const STAY_CLUSTER_RADIUS_M = 100;
+/** Разрыв во времени — новая стоянка, даже если координаты те же (уехал и вернулся) */
+export const STAY_MAX_GAP_MS = 45 * 60 * 1000;
+/** Минимальная длительность, чтобы показать как «стоянку», а не точку проезда */
+export const MIN_STAY_DURATION_SEC = 5 * 60;
+
 export interface LocationCluster {
     points: Location[];
-    /** Точка для маркера (центр скопления, время — первое в группе) */
     representative: Location;
     centerLat: number;
     centerLng: number;
+    fromMs: number;
+    toMs: number;
 }
 
 function normalizeLocations(locations: Location[]): Location[] {
@@ -133,11 +141,50 @@ function clusterCenter(points: Location[]): { lat: number; lng: number } {
     return { lat, lng };
 }
 
+function isNearCluster(point: Location, cluster: Location[], radiusMeters: number): boolean {
+    return cluster.some(
+        p => haversineMeters(p.latitude, p.longitude, point.latitude, point.longitude) <= radiusMeters,
+    );
+}
+
+export function clusterDurationMs(cluster: LocationCluster): number {
+    return Math.max(0, cluster.toMs - cluster.fromMs);
+}
+
+export function clusterDurationSeconds(cluster: LocationCluster): number {
+    return Math.round(clusterDurationMs(cluster) / 1000);
+}
+
+/** Стоянка (не одиночная точка проезда) */
+export function isSignificantStay(cluster: LocationCluster): boolean {
+    return cluster.points.length >= 2 || clusterDurationSeconds(cluster) >= MIN_STAY_DURATION_SEC;
+}
+
+function buildClusterMeta(points: Location[]): Omit<LocationCluster, 'points'> {
+    const { lat, lng } = clusterCenter(points);
+    const fromMs = locationEffectiveAtMs(points[0]);
+    const toMs = locationEffectiveAtMs(points[points.length - 1]);
+    return {
+        centerLat: lat,
+        centerLng: lng,
+        fromMs,
+        toMs,
+        representative: {
+            ...points[0],
+            latitude: lat,
+            longitude: lng,
+        },
+    };
+}
+
 /**
- * Группирует подряд идущие GPS-точки в радиусе radiusMeters (стоянка / дрожание сигнала).
- * Для отображения — одна метка на группу и линия только между группами.
+ * Группирует GPS-точки в стоянки: любая точка кластера в радиусе radiusMeters,
+ * разрыв по времени > STAY_MAX_GAP_MS начинает новую стоянку.
  */
-export function buildLocationClusters(locations: Location[], radiusMeters: number): LocationCluster[] {
+export function buildLocationClusters(
+    locations: Location[],
+    radiusMeters: number = STAY_CLUSTER_RADIUS_M,
+): LocationCluster[] {
     const sorted = normalizeLocations(locations);
     if (sorted.length === 0) return [];
 
@@ -146,24 +193,22 @@ export function buildLocationClusters(locations: Location[], radiusMeters: numbe
 
     const flush = () => {
         if (current.length === 0) return;
-        const { lat, lng } = clusterCenter(current);
-        clusters.push({
-            points: current,
-            centerLat: lat,
-            centerLng: lng,
-            representative: {
-                ...current[0],
-                latitude: lat,
-                longitude: lng,
-            },
-        });
+        clusters.push({ points: current, ...buildClusterMeta(current) });
         current = [];
     };
 
     for (let i = 1; i < sorted.length; i++) {
         const point = sorted[i];
-        const { lat, lng } = clusterCenter(current);
-        if (haversineMeters(lat, lng, point.latitude, point.longitude) <= radiusMeters) {
+        const last = current[current.length - 1];
+        const gapMs = locationEffectiveAtMs(point) - locationEffectiveAtMs(last);
+
+        if (gapMs > STAY_MAX_GAP_MS) {
+            flush();
+            current = [point];
+            continue;
+        }
+
+        if (isNearCluster(point, current, radiusMeters)) {
             current.push(point);
         } else {
             flush();

@@ -10,18 +10,25 @@ import (
 	"locator/models"
 )
 
+// visitLocationReader — для тестов и DAO: история точек при закрытии визита.
+type visitLocationReader interface {
+	GetLocationsByUserBetween(userID int, from, to time.Time) ([]models.Location, error)
+}
+
 // VisitEventProcessor отвечает за обработку событий локации из RabbitMQ.
 type VisitEventProcessor struct {
 	CheckpointService *CheckpointService
 	VisitService      *VisitService
+	LocationDAO       visitLocationReader
 	geofenceStates    *geofenceStateStore
 }
 
 // NewVisitEventProcessor создаёт новый экземпляр обработчика событий.
-func NewVisitEventProcessor(cs *CheckpointService, vs *VisitService) *VisitEventProcessor {
+func NewVisitEventProcessor(cs *CheckpointService, vs *VisitService, locationDAO visitLocationReader) *VisitEventProcessor {
 	return &VisitEventProcessor{
 		CheckpointService: cs,
 		VisitService:      vs,
+		LocationDAO:       locationDAO,
 		geofenceStates:    newGeofenceStateStore(),
 	}
 }
@@ -84,7 +91,7 @@ func (vep *VisitEventProcessor) processCheckpoint(cp models.Checkpoint, event mo
 	}
 
 	state.clearPendingEnter()
-	return vep.handleOutside(event.UserID, cp.ID, activeVisit, state, now)
+	return vep.handleOutside(event.UserID, cp, activeVisit, state, now, distance)
 }
 
 func (vep *VisitEventProcessor) getActiveVisit(userID, checkpointID int) (*models.Visit, error) {
@@ -123,13 +130,22 @@ func (vep *VisitEventProcessor) handleInside(userID, checkpointID int, activeVis
 }
 
 // handleOutside: при активном визите ждём устойчивого выхода из зоны, затем завершаем.
-func (vep *VisitEventProcessor) handleOutside(userID, checkpointID int, activeVisit *models.Visit, state *geofencePendingState, now time.Time) error {
+func (vep *VisitEventProcessor) handleOutside(
+	userID int,
+	cp models.Checkpoint,
+	activeVisit *models.Visit,
+	state *geofencePendingState,
+	now time.Time,
+	distance float64,
+) error {
 	if activeVisit == nil {
 		return nil
 	}
 
+	checkpointID := cp.ID
+	farOutside := geofenceFarOutside(distance, cp.Radius, true)
 	exitGrace := geofenceExitGraceSeconds()
-	if !state.pendingExitElapsed(now, exitGrace) {
+	if !farOutside && !state.pendingExitElapsed(now, exitGrace) {
 		state.markPendingExit(now)
 		log.Printf("[handleOutside] Ожидание подтверждения выхода userID=%d checkpointID=%d (grace=%ds)",
 			userID, checkpointID, exitGrace)
@@ -139,7 +155,8 @@ func (vep *VisitEventProcessor) handleOutside(userID, checkpointID int, activeVi
 	state.clearPendingExit()
 
 	minVisit := geofenceMinVisitSeconds()
-	elapsed := int(now.Sub(activeVisit.StartAt.UTC()).Seconds())
+	endAt := vep.resolveVisitEndAt(userID, cp, activeVisit, now, farOutside)
+	elapsed := int(endAt.Sub(activeVisit.StartAt.UTC()).Seconds())
 	if elapsed < minVisit {
 		if err := vep.VisitService.AbandonVisit(activeVisit); err != nil {
 			log.Printf("[handleOutside] Ошибка отмены короткого визита userID=%d checkpointID=%d: %v",
@@ -151,11 +168,65 @@ func (vep *VisitEventProcessor) handleOutside(userID, checkpointID int, activeVi
 		return nil
 	}
 
-	if err := vep.VisitService.EndVisitAt(activeVisit, now); err != nil {
+	if err := vep.VisitService.EndVisitAt(activeVisit, endAt); err != nil {
 		log.Printf("[handleOutside] Ошибка завершения визита userID=%d checkpointID=%d: %v",
 			userID, checkpointID, err)
 		return err
 	}
-	log.Printf("[handleOutside] Завершён визит для userID=%d checkpointID=%d", userID, checkpointID)
+	log.Printf("[handleOutside] Завершён визит для userID=%d checkpointID=%d endAt=%s farOutside=%v",
+		userID, checkpointID, endAt.UTC(), farOutside)
 	return nil
+}
+
+// resolveVisitEndAt не растягивает визит на период без GPS: конец = последняя точка в зоне + grace.
+func (vep *VisitEventProcessor) resolveVisitEndAt(
+	userID int,
+	cp models.Checkpoint,
+	visit *models.Visit,
+	eventNow time.Time,
+	farOutside bool,
+) time.Time {
+	eventNow = eventNow.UTC()
+	exitGrace := time.Duration(geofenceExitGraceSeconds()) * time.Second
+	staleGap := time.Duration(geofenceStaleGapSeconds()) * time.Second
+
+	if vep.LocationDAO == nil {
+		return eventNow
+	}
+
+	locs, err := vep.LocationDAO.GetLocationsByUserBetween(userID, visit.StartAt.UTC(), eventNow)
+	if err != nil || len(locs) == 0 {
+		return eventNow
+	}
+
+	insideRadius := cp.Radius + geofenceExitBufferMeters()
+	var lastInside time.Time
+	foundInside := false
+	for _, loc := range locs {
+		d := haversineDistance(loc.Latitude, loc.Longitude, cp.Latitude, cp.Longitude)
+		if d <= insideRadius {
+			lastInside = loc.EffectiveAt().UTC()
+			foundInside = true
+		}
+	}
+
+	if !foundInside {
+		return eventNow
+	}
+
+	gap := eventNow.Sub(lastInside)
+	if !farOutside && gap <= staleGap {
+		return eventNow
+	}
+
+	endAt := lastInside.Add(exitGrace)
+	if endAt.After(eventNow) {
+		endAt = eventNow
+	}
+	if endAt.Before(visit.StartAt.UTC()) {
+		endAt = visit.StartAt.UTC()
+	}
+	log.Printf("[resolveVisitEndAt] userID=%d checkpointID=%d lastInside=%s gap=%s endAt=%s",
+		userID, cp.ID, lastInside, gap, endAt)
+	return endAt
 }

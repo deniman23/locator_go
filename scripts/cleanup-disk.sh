@@ -32,4 +32,10 @@ for f in /var/log/locator-deploy.log /var/log/locator-backup.log /var/log/locato
   fi
 done
 
+# Старые временные файлы Gradle/APK (не трогаем свежие сборки)
+find /tmp -maxdepth 1 -type f -mtime +2 -size +10M -delete 2>/dev/null || true
+if [[ -d /root/.gradle/caches ]]; then
+  find /root/.gradle/caches -type f -mtime +14 -delete 2>/dev/null || true
+fi
+
 log "Готово. Диск после: $(df -h / | awk 'NR==2 {print $3"/"$2" ("$5")"}')"
