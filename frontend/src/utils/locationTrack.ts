@@ -13,10 +13,10 @@ const TRACK_SHORT_GAP_MAX_JUMP_M = 500;
 /** Макс. скачок за разумный интервал (после backfill офлайн-очереди) */
 const TRACK_ABSOLUTE_MAX_JUMP_M = 1500;
 const TRACK_ABSOLUTE_MAX_JUMP_MS = 45 * 60_000;
-/** Типичный интервал periodic (~5 мин): скачок >900 м — сбой сети/GPS, не пешая ходьба */
+/** Типичный интервал periodic (~5 мин): скачок >1500 м — подозрительно (смотрим по факту) */
 const TRACK_PERIODIC_MIN_GAP_MS = 3.5 * 60_000;
 const TRACK_PERIODIC_MAX_GAP_MS = 9 * 60_000;
-const TRACK_PERIODIC_MAX_JUMP_M = 900;
+const TRACK_PERIODIC_MAX_JUMP_M = 1500;
 /** «Островок»: ушёл далеко и вернулся к той же точке (кэш сети, выброс) */
 const ISLAND_RETURN_RADIUS_M = 130;
 const ISLAND_MIN_JUMP_M = 200;

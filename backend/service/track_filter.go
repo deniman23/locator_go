@@ -15,10 +15,10 @@ const (
 	// После backfill офлайн-очереди точки разнесены по 5 мин — иначе 13 км за 10 мин проходят как «пешком».
 	trackAbsoluteMaxJumpM      = 1500.0
 	trackAbsoluteMaxJumpWindow = 45 * time.Minute
-	// Типичный periodic (~5 мин): >900 м — сбой GPS/сети.
+	// Типичный periodic (~5 мин): >1500 м — подозрительно (островки ловят «туда-обратно»).
 	trackPeriodicMinGap      = 3*time.Minute + 30*time.Second
 	trackPeriodicMaxGap      = 9 * time.Minute
-	trackPeriodicMaxJumpM    = 900.0
+	trackPeriodicMaxJumpM    = 1500.0
 	islandReturnRadiusM      = 130.0
 	islandMinJumpM           = 200.0
 	maxIslandSpan            = 30 * time.Minute

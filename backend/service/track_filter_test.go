@@ -62,11 +62,11 @@ func TestIsTrackOutlierFromPrev_periodicFiveMinJump(t *testing.T) {
 	}
 	jumpAt := base.Add(5 * time.Minute)
 	curr := models.Location{
-		Latitude: 53.88269, Longitude: 27.529505,
+		Latitude: 53.87069, Longitude: 27.529505,
 		CapturedAt: &jumpAt, CreatedAt: jumpAt,
 	}
 	if !IsTrackOutlierFromPrev(prev, curr) {
-		t.Fatal("expected ~1.4km in 5min periodic to be outlier")
+		t.Fatal("expected >1.5km in 5min periodic to be outlier")
 	}
 }
 
