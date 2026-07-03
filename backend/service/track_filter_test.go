@@ -134,4 +134,41 @@ func TestFilterTrackOutliers_smallRealMoveKept(t *testing.T) {
 	}
 }
 
+func TestFilterTrackOutliers_staleCapturedAfterOffline(t *testing.T) {
+	homeAt := time.Date(2026, 7, 3, 9, 47, 29, 0, time.UTC)
+	home := models.Location{
+		ID: 6069, UserID: 1, Latitude: 53.885872, Longitude: 27.510088,
+		CapturedAt: &homeAt, CreatedAt: homeAt,
+	}
+	zamokCap := time.Date(2026, 7, 3, 11, 31, 5, 0, time.UTC)
+	received := time.Date(2026, 7, 3, 11, 31, 43, 0, time.UTC)
+	zamok := models.Location{
+		ID: 6070, UserID: 1, Latitude: 53.926598, Longitude: 27.517794,
+		CapturedAt: &zamokCap, CreatedAt: received,
+	}
+	wrongCap := time.Date(2026, 7, 3, 11, 28, 24, 0, time.UTC)
+	wrong := models.Location{
+		ID: 6071, UserID: 1, Latitude: 53.866451, Longitude: 27.484868,
+		Source: models.LocationSourceOnDemand, CapturedAt: &wrongCap, CreatedAt: received,
+	}
+	okCap := time.Date(2026, 7, 3, 11, 32, 0, 0, time.UTC)
+	ok := models.Location{
+		ID: 6072, UserID: 1, Latitude: 53.926578, Longitude: 27.517909,
+		Source: models.LocationSourceOnDemand, CapturedAt: &okCap, CreatedAt: okCap,
+	}
+
+	out := FilterTrackOutliers([]models.Location{home, zamok, wrong, ok})
+	if len(out) != 3 {
+		t.Fatalf("expected 3 points (wrong #6071 removed), got %d: %#v", len(out), out)
+	}
+	if out[len(out)-1].ID != 6072 {
+		t.Fatalf("expected last point at zamok, got %#v", out[len(out)-1])
+	}
+	for _, loc := range out {
+		if loc.ID == 6071 {
+			t.Fatal("stale wrong point #6071 must be filtered")
+		}
+	}
+}
+
 func ptrTime(t time.Time) *time.Time { return &t }

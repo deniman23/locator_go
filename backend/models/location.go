@@ -52,7 +52,10 @@ func (loc *Location) UpdateCoordinates(lat, lon float64) {
 	loc.UpdatedAt = time.Now()
 }
 
-// EffectiveAt — время для трека и визитов: captured_at или created_at.
+// trackCapturedSkew — если captured_at заметно раньше приёма сервером, для порядка трека берём created_at.
+const trackCapturedSkew = 90 * time.Second
+
+// EffectiveAt — время для визитов и геозоны: captured_at или created_at.
 func (loc *Location) EffectiveAt() time.Time {
 	if loc != nil && loc.CapturedAt != nil && !loc.CapturedAt.IsZero() {
 		return loc.CapturedAt.UTC()
@@ -61,4 +64,25 @@ func (loc *Location) EffectiveAt() time.Time {
 		return loc.CreatedAt.UTC()
 	}
 	return time.Time{}
+}
+
+// TrackSortAt — время для сортировки трека на карте (офлайн-очередь с устаревшим captured_at).
+func (loc *Location) TrackSortAt() time.Time {
+	if loc == nil {
+		return time.Time{}
+	}
+	if loc.CapturedAt != nil && !loc.CapturedAt.IsZero() && !loc.CreatedAt.IsZero() {
+		if loc.CreatedAt.UTC().Sub(loc.CapturedAt.UTC()) > trackCapturedSkew {
+			return loc.CreatedAt.UTC()
+		}
+	}
+	return loc.EffectiveAt()
+}
+
+// HasStaleCapturedAt — GPS-fix с устройства заметно старше момента отправки на сервер.
+func (loc *Location) HasStaleCapturedAt() bool {
+	if loc == nil || loc.CapturedAt == nil || loc.CapturedAt.IsZero() || loc.CreatedAt.IsZero() {
+		return false
+	}
+	return loc.CreatedAt.UTC().Sub(loc.CapturedAt.UTC()) > trackCapturedSkew
 }

@@ -35,14 +35,13 @@ export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: 
 }
 
 function locationTimeMs(loc: Location): number {
-    return locationEffectiveAtMs(loc);
+    return locationTrackSortAtMs(loc);
 }
 
-/** Точка невозможна относительно предыдущей принятой. */
-export function isTrackOutlierFromPrev(prev: Location, curr: Location): boolean {
+function isTrackOutlierFromPrevAt(prev: Location, curr: Location, atMs: (loc: Location) => number): boolean {
     const dist = haversineMeters(prev.latitude, prev.longitude, curr.latitude, curr.longitude);
-    const tPrev = locationTimeMs(prev);
-    const tCurr = locationTimeMs(curr);
+    const tPrev = atMs(prev);
+    const tCurr = atMs(curr);
     if (!Number.isFinite(tPrev) || !Number.isFinite(tCurr)) return false;
     const dtMs = tCurr - tPrev;
     if (dtMs < 0) return true;
@@ -58,6 +57,11 @@ export function isTrackOutlierFromPrev(prev: Location, curr: Location): boolean 
     if (dtMs <= TRACK_SHORT_GAP_MS) return dist > TRACK_SHORT_GAP_MAX_JUMP_M;
     if (dtMs > 0) return dist / (dtMs / 1000) > TRACK_MAX_SPEED_MPS;
     return dist > TRACK_BATCH_MAX_JUMP_M;
+}
+
+/** Точка невозможна относительно предыдущей принятой. */
+export function isTrackOutlierFromPrev(prev: Location, curr: Location): boolean {
+    return isTrackOutlierFromPrevAt(prev, curr, locationTrackSortAtMs);
 }
 
 /**
@@ -187,9 +191,12 @@ export function buildCleanTrackPolyline(
 }
 
 export function sortLocationsByCreatedAsc(locations: Location[]): Location[] {
-    return [...locations].sort(
-        (a, b) => locationEffectiveAtMs(a) - locationEffectiveAtMs(b)
-    );
+    return [...locations].sort((a, b) => {
+        const da = locationTrackSortAtMs(a);
+        const db = locationTrackSortAtMs(b);
+        if (da !== db) return da - db;
+        return (a.id ?? 0) - (b.id ?? 0);
+    });
 }
 
 /** Радиус стоянки на карте: GPS-дрейф дома/офиса */
@@ -401,6 +408,20 @@ export function periodEndInclusiveMs(to: string): number {
 export function locationCreatedAtMs(value: string | undefined): number {
     if (!value) return NaN;
     return minskLocalToMs(value);
+}
+
+/** Сколько мс captured_at может отставать от created_at, прежде чем для трека берём created_at */
+export const TRACK_CAPTURED_SKEW_MS = 90_000;
+
+/** Время для сортировки трека (офлайн-очередь с устаревшим captured_at). */
+export function locationTrackSortAtMs(loc: Location): number {
+    const captured = loc.captured_at ? locationCreatedAtMs(loc.captured_at) : NaN;
+    const created = locationCreatedAtMs(loc.created_at);
+    if (Number.isFinite(captured) && Number.isFinite(created) && created - captured > TRACK_CAPTURED_SKEW_MS) {
+        return created;
+    }
+    if (Number.isFinite(captured)) return captured;
+    return created;
 }
 
 /** Время для трека и периода: captured_at или created_at. */

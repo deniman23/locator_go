@@ -190,6 +190,7 @@ const UserVisits: React.FC = () => {
             user_id: String(visit.user_id),
             from,
             to,
+            markers: 'all',
         });
         navigate(`/?${q.toString()}`);
     };

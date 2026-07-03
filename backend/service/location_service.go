@@ -70,6 +70,17 @@ func (svc *LocationService) CreateLocation(
 
 	effectiveAt := newLocation.EffectiveAt()
 
+	// On-demand с request_id сохраняем, если это явный ответ на запрос; но отбрасываем
+	// устаревший GPS-fix после офлайна, который телепортирует трек.
+	if requestID != "" {
+		prev, _ := svc.DAO.GetPreviousByEffectiveTime(userID, newLocation.CreatedAt.UTC())
+		if prev != nil && newLocation.HasStaleCapturedAt() && IsTrackOutlierFromPrev(*prev, *newLocation) {
+			log.Printf("[CreateLocation] Пропуск устаревшего on_demand для userID=%d: %.6f,%.6f",
+				userID, lat, lon)
+			return nil, "stale_gps_outlier", nil
+		}
+	}
+
 	// On-demand с request_id всегда сохраняем — это явный запрос координат.
 	if requestID == "" {
 		prev, _ := svc.DAO.GetPreviousByEffectiveTime(userID, effectiveAt)

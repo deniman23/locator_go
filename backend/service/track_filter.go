@@ -3,6 +3,7 @@ package service
 import (
 	"locator/models"
 	"math"
+	"sort"
 	"time"
 )
 
@@ -24,11 +25,25 @@ const (
 	maxIslandSpan            = 30 * time.Minute
 )
 
+func sortLocationsByTrackSort(locs []models.Location) []models.Location {
+	out := make([]models.Location, len(locs))
+	copy(out, locs)
+	sort.Slice(out, func(i, j int) bool {
+		ti := out[i].TrackSortAt()
+		tj := out[j].TrackSortAt()
+		if !ti.Equal(tj) {
+			return ti.Before(tj)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
 // IsTrackOutlierFromPrev — точка невозможна относительно предыдущей принятой.
 func IsTrackOutlierFromPrev(prev, curr models.Location) bool {
 	dist := haversineDistanceM(prev.Latitude, prev.Longitude, curr.Latitude, curr.Longitude)
-	prevAt := prev.EffectiveAt()
-	currAt := curr.EffectiveAt()
+	prevAt := prev.TrackSortAt()
+	currAt := curr.TrackSortAt()
 	if currAt.IsZero() || prevAt.IsZero() {
 		return false
 	}
@@ -60,6 +75,7 @@ func FilterTrackOutliers(locs []models.Location) []models.Location {
 	if len(locs) <= 1 {
 		return locs
 	}
+	locs = sortLocationsByTrackSort(locs)
 	locs = FilterGpsIslands(locs)
 	out := make([]models.Location, 0, len(locs))
 	out = append(out, locs[0])
@@ -115,7 +131,7 @@ func FilterGpsIslands(locs []models.Location) []models.Location {
 			j++
 		}
 		if j > i && j < len(locs) {
-			span := locs[j].EffectiveAt().Sub(locs[i].EffectiveAt())
+			span := locs[j].TrackSortAt().Sub(locs[i].TrackSortAt())
 			allFar := span <= maxIslandSpan
 			if allFar {
 				for k := i; k < j; k++ {

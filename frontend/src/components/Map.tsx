@@ -12,8 +12,8 @@ import {
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import type { Checkpoint, Location, User } from '../types/models';
-import { checkpointApi, locationApi, userApi } from '../services/api';
+import type { Checkpoint, Location, User, Visit } from '../types/models';
+import { checkpointApi, locationApi, userApi, visitApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
@@ -30,6 +30,7 @@ import {
     filterTrackOutliers,
     isSignificantStay,
     isValidMapLocation,
+    locationTrackSortAtMs,
     minskDateTimeHoursBefore,
     minskDayBounds,
     STAY_CLUSTER_RADIUS_M,
@@ -121,6 +122,7 @@ const MapComponent: React.FC = () => {
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [userLocations, setUserLocations] = useState<Location[]>([]);
     const [allUsers, setAllUsers] = useState<User[]>([]);
+    const [activeVisits, setActiveVisits] = useState<Visit[]>([]);
     const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
     const [userSearch, setUserSearch] = useState('');
     const [loading, setLoading] = useState(true);
@@ -162,6 +164,10 @@ const MapComponent: React.FC = () => {
                 setSelectedUserIds(users.map(u => u.id));
             })
             .catch(err => console.error('Не удалось загрузить пользователей:', err));
+        visitApi
+            .getActive(apiKey)
+            .then(res => setActiveVisits(res.data ?? []))
+            .catch(err => console.error('Не удалось загрузить активные визиты:', err));
     }, [apiKey]);
 
     const fetchData = useCallback(async () => {
@@ -251,6 +257,7 @@ const MapComponent: React.FC = () => {
         const userIdStr = searchParams.get('user_id');
         const from = searchParams.get('from');
         const to = searchParams.get('to');
+        const markers = searchParams.get('markers');
         if (!userIdStr || !from || !to) return;
 
         const uid = parseInt(userIdStr, 10);
@@ -261,8 +268,12 @@ const MapComponent: React.FC = () => {
         setFromTime(from);
         setToTime(to);
         setTrackMode('polyline');
+        if (markers === 'all') {
+            setMarkerMode('all');
+        }
         filtersRef.current = { fromTime: from, toTime: to };
         setShouldFitBounds(true);
+        localStorage.removeItem('mapPosition');
         setSearchParams({}, { replace: true });
         setTimeout(() => void fetchDataRef.current?.(), 0);
     }, [searchParams, setSearchParams]);
@@ -452,6 +463,34 @@ const MapComponent: React.FC = () => {
         return m;
     }, [trackLocations, selectedUserIds]);
 
+    /** Последняя принятая GPS-точка за период — всегда видна на карте. */
+    const lastKnownByUser = useMemo(() => {
+        const m = new Map<number, Location>();
+        for (const uid of selectedUserIds) {
+            const locs = trackLocations
+                .filter(l => l.user_id === uid)
+                .sort(
+                    (a, b) =>
+                        locationTrackSortAtMs(a) - locationTrackSortAtMs(b) || a.id - b.id,
+                );
+            if (locs.length > 0) {
+                m.set(uid, locs[locs.length - 1]);
+            }
+        }
+        return m;
+    }, [trackLocations, selectedUserIds]);
+
+    const activeVisitMarkers = useMemo(() => {
+        return activeVisits
+            .filter(v => selectedUserIds.includes(v.user_id) && v.checkpoint_id > 0)
+            .map(v => {
+                const cp = checkpoints.find(c => c.id === v.checkpoint_id);
+                if (!cp) return null;
+                return { visit: v, checkpoint: cp };
+            })
+            .filter((x): x is { visit: Visit; checkpoint: Checkpoint } => x != null);
+    }, [activeVisits, selectedUserIds, checkpoints]);
+
     const extraLatLngForBounds = useMemo(() => {
         const pts: [number, number][] = [];
         if (trackMode !== 'none') {
@@ -495,8 +534,13 @@ const MapComponent: React.FC = () => {
         setError(null);
         try {
             await fetchData();
+            if (apiKey) {
+                const res = await visitApi.getActive(apiKey);
+                setActiveVisits(res.data ?? []);
+            }
             setTrackMode(prev => (prev === 'none' ? 'polyline' : prev));
             setShouldFitBounds(true);
+            localStorage.removeItem('mapPosition');
             if (useRoadMatch && selectedUserIds.length === 1) {
                 setMatchedRouteNonce(n => n + 1);
             }
@@ -910,6 +954,56 @@ const MapComponent: React.FC = () => {
                                 </CircleMarker>
                             );
                         })}
+
+                    {activeVisitMarkers.map(({ visit, checkpoint }) => (
+                        <CircleMarker
+                            key={`active-visit-${visit.id}`}
+                            center={[checkpoint.latitude, checkpoint.longitude]}
+                            radius={14}
+                            pathOptions={{
+                                color: '#16a34a',
+                                fillColor: '#22c55e',
+                                fillOpacity: 0.35,
+                                weight: 4,
+                                dashArray: '4 4',
+                            }}
+                        >
+                            <Popup>
+                                <div className="popup-content">
+                                    <strong>Активный визит: {checkpoint.name}</strong>
+                                    <div>с {formatDateTime(visit.start_at)}</div>
+                                    <div className="popup-meta">Маркер на чекпоинте (визит открыт)</div>
+                                </div>
+                            </Popup>
+                        </CircleMarker>
+                    ))}
+
+                    {[...lastKnownByUser.entries()].map(([uid, loc]) => (
+                        <CircleMarker
+                            key={`last-known-${uid}-${loc.id}`}
+                            center={[loc.latitude, loc.longitude]}
+                            radius={10}
+                            pathOptions={{
+                                color: getUserColor(uid),
+                                fillColor: '#ffffff',
+                                fillOpacity: 0.95,
+                                weight: 4,
+                            }}
+                        >
+                            <Popup>
+                                <div className="popup-content">
+                                    <strong>
+                                        {allUsers.find(u => u.id === uid)?.name ?? `ID ${uid}`} — сейчас
+                                    </strong>
+                                    <div>{formatDateTime(loc.captured_at ?? loc.created_at)}</div>
+                                    <div className="popup-coords">
+                                        {loc.latitude.toFixed(6)}, {loc.longitude.toFixed(6)}
+                                    </div>
+                                    {loc.id > 0 && <div className="popup-id">Запись #{loc.id}</div>}
+                                </div>
+                            </Popup>
+                        </CircleMarker>
+                    ))}
                 </MapContainer>
 
                 <div className="map-status-bar">
