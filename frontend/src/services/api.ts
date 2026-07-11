@@ -175,6 +175,15 @@ export const deviceApi = {
             location_command_id?: string;
             note?: string;
         }>(`/admin/users/${userId}/wake`, {}, withApiKey(apiKey)),
+
+    enableLocation: (userId: number, apiKey?: string) =>
+        api.post<{
+            user_id: number;
+            config_command_id: string;
+            health_command_id?: string;
+            location_command_id?: string;
+            note?: string;
+        }>(`/admin/users/${userId}/enable-location`, {}, withApiKey(apiKey)),
 };
 
 export const releaseApi = {

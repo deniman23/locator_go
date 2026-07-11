@@ -20,10 +20,13 @@ if [[ ! -d "$LCTR_APP_DIR/.git" ]]; then
   echo "Клонирую $LCTR_APP_REPO → $LCTR_APP_DIR"
   git clone "$LCTR_APP_REPO" "$LCTR_APP_DIR"
 else
-  echo "Обновляю $LCTR_APP_DIR"
-  # SSH-ключ на сервере может отсутствовать — fetch через HTTPS
-  git -C "$LCTR_APP_DIR" fetch https://github.com/deniman23/lctr_app.git main
-  git -C "$LCTR_APP_DIR" reset --hard FETCH_HEAD
+  if [[ "${SKIP_LCTR_FETCH:-}" != "1" ]]; then
+    echo "Обновляю $LCTR_APP_DIR"
+    git -C "$LCTR_APP_DIR" fetch https://github.com/deniman23/lctr_app.git main
+    git -C "$LCTR_APP_DIR" reset --hard FETCH_HEAD
+  else
+    echo "SKIP_LCTR_FETCH=1 — локальные правки в $LCTR_APP_DIR не трогаем"
+  fi
 fi
 
 if [[ -n "$VERSION_CODE" ]] || [[ -n "$VERSION_NAME" ]]; then

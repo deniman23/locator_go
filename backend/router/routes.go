@@ -76,6 +76,7 @@ func InitRoutes(
 		{
 			adminGroup.GET("/devices/status", deviceController.GetAdminDevicesStatus)
 			adminGroup.POST("/users/:id/wake", deviceController.PostAdminWakeDevice)
+			adminGroup.POST("/users/:id/enable-location", deviceController.PostAdminEnableLocation)
 			adminGroup.POST("/users/:id/commands", deviceController.PostAdminUserCommand)
 			adminGroup.POST("/users/:id/device/config", deviceController.PostAdminUserDeviceConfig)
 			adminGroup.POST("/users/:id/regenerate-qr", userController.PostRegenerateUserQR)

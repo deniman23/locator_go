@@ -1,10 +1,10 @@
 {
-  "version_name": "1.0.20",
-  "version_code": 21,
+  "version_name": "1.0.24",
+  "version_code": 25,
   "package_name": "com.example.lctr_app",
-  "filename": "locator-1.0.20-21.apk",
-  "sha256": "df91f19beaea0b6628cb7f18bf96920459b151e92cbfba0ef3170ea052671b56",
+  "filename": "locator-1.0.24-25.apk",
+  "sha256": "eaea649c9e9e497753dcbbe817c87d231656ef2f18f07e57c750399498632b41",
   "force": true,
-  "changelog": "GPS heartbeat на месте, фикс stale timestamp, автоперезапуск, wake при разблокировке",
-  "url": "http://87.232.65.52:8080/static/releases/locator-1.0.20-21.apk"
+  "changelog": "GPS heartbeat каждые 5 мин на месте, фикс stale timestamp, wake при разблокировке",
+  "url": "http://87.232.65.52:8080/static/releases/locator-1.0.24-25.apk"
 }

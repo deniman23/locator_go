@@ -24,6 +24,7 @@ type DeviceConfigUpdateInput struct {
 	AdminPin                    *string `json:"admin_pin"`
 	HiddenFromLauncher          *bool   `json:"hidden_from_launcher"`
 	WakeDevice                  *bool   `json:"wake_device"`
+	EnableLocation              *bool   `json:"enable_location"`
 }
 
 // BuildConfigUpdatePayload валидирует и собирает payload для команды config_update.
@@ -78,6 +79,9 @@ func BuildConfigUpdatePayload(userID int, in DeviceConfigUpdateInput) (map[strin
 	}
 	if in.WakeDevice != nil && *in.WakeDevice {
 		payload["wake_device"] = true
+	}
+	if in.EnableLocation != nil && *in.EnableLocation {
+		payload["enable_location"] = true
 	}
 
 	if len(payload) == 0 {

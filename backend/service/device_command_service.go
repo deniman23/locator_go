@@ -77,7 +77,7 @@ func (svc *DeviceCommandService) EnqueueCommand(userID int, cmdType string, payl
 	}
 
 	id := uuid.New().String()
-	if err := svc.DAO.CancelPendingForUser(userID, id); err != nil {
+	if err := svc.DAO.CancelPendingForUser(userID, cmdType, id); err != nil {
 		return nil, err
 	}
 

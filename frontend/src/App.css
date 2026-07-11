@@ -1337,6 +1337,15 @@ main {
   background-color: #7d3c98;
 }
 
+.device-action-button--location {
+  background-color: #e67e22;
+  font-weight: 600;
+}
+
+.device-action-button--location:hover:not(:disabled) {
+  background-color: #d35400;
+}
+
 .device-action-notice {
   margin: 0 0 0.35rem;
   font-size: 0.78rem;

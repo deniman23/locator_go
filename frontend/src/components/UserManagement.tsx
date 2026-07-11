@@ -36,6 +36,20 @@ function gpsLabel(status: GpsStatus): string {
     }
 }
 
+const ISSUE_LABELS: Record<string, string> = {
+    location_permission_denied: 'Нет доступа к геолокации',
+    location_permission_not_always: 'Геолокация только «при использовании»',
+    location_services_disabled: 'GPS выключен в системе',
+    post_failed: 'Ошибка отправки координат',
+    post_stale: 'Давно не было GPS',
+    background_stopped: 'Фоновый сервис остановлен',
+    tracking_paused: 'Трекинг на паузе',
+};
+
+function issueLabel(code: string): string {
+    return ISSUE_LABELS[code] ?? code;
+}
+
 function reportSummary(report: Record<string, unknown>): string[] {
     const lines: string[] = [];
     const add = (label: string, key: string) => {
@@ -279,6 +293,57 @@ const UserManagement: React.FC = () => {
             }, 0);
         } catch (err) {
             setNotice(userId, err instanceof Error ? err.message : 'Не удалось отправить пробуждение');
+        } finally {
+            setActionUserId(null);
+        }
+    };
+
+    const handleEnableLocation = async (userId: number) => {
+        if (!apiKey) return;
+        setActionUserId(userId);
+        setNotice(userId, 'Включение геолокации на телефоне…', 90_000);
+        const baseline = deviceStatus[userId]?.lastReportAt;
+        const baselineAge = deviceStatus[userId]?.ageSeconds;
+        try {
+            const { data } = await deviceApi.enableLocation(userId, apiKey);
+            setNotice(userId, data.note ?? 'Команда отправлена на устройство');
+            const fresh = await waitForFreshHealthReport(userId, apiKey, baseline, {
+                attempts: 25,
+                intervalMs: 2000,
+            });
+            if (fresh) {
+                applyUserStatus(userId, fresh);
+                setNotice(
+                    userId,
+                    fresh.healthy
+                        ? 'Геолокация включена, GPS снова работает'
+                        : 'Команда применена — проверьте статус устройства',
+                );
+                return;
+            }
+            try {
+                const loc = await locationApi.getByUserId(userId, apiKey);
+                const improved =
+                    loc.data.age_seconds != null &&
+                    (baselineAge == null || loc.data.age_seconds < baselineAge - 5);
+                if (improved) {
+                    const status = await fetchUserDeviceStatus(userId, apiKey);
+                    applyUserStatus(userId, status);
+                    setNotice(userId, 'GPS обновлён');
+                    return;
+                }
+            } catch {
+                // ignore
+            }
+            setNotice(
+                userId,
+                'Команда в очереди. Разблокируйте телефон и подождите ~1 мин (нужен интернет).',
+            );
+        } catch (err) {
+            setNotice(
+                userId,
+                err instanceof Error ? err.message : 'Не удалось включить геолокацию',
+            );
         } finally {
             setActionUserId(null);
         }
@@ -561,7 +626,7 @@ const UserManagement: React.FC = () => {
                                                         title={status.issues.join('\n')}
                                                     >
                                                         {status.issues.map((issue) => (
-                                                            <li key={issue}>{issue}</li>
+                                                            <li key={issue}>{issueLabel(issue)}</li>
                                                         ))}
                                                     </ul>
                                                 )}
@@ -612,6 +677,14 @@ const UserManagement: React.FC = () => {
                                                 title="Новый API-ключ и QR (старый перестанет работать)"
                                             >
                                                 Перегенерировать QR
+                                            </button>
+                                            <button
+                                                className="device-action-button device-action-button--location"
+                                                onClick={() => handleEnableLocation(user.id)}
+                                                disabled={busy}
+                                                title="Включить GPS и разрешения на телефоне (Device Owner)"
+                                            >
+                                                Вкл. GPS
                                             </button>
                                             <button
                                                 className="device-action-button"

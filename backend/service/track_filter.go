@@ -8,21 +8,12 @@ import (
 )
 
 const (
-	trackMaxSpeedMPS      = 25.0 // ~90 км/ч
-	trackBatchWindow      = 10 * time.Second
-	trackBatchMaxJumpM    = 250.0
-	trackShortGap         = 2 * time.Minute
-	trackShortGapMaxJumpM = 500.0
-	// После backfill офлайн-очереди точки разнесены по 5 мин — иначе 13 км за 10 мин проходят как «пешком».
-	trackAbsoluteMaxJumpM      = 1500.0
-	trackAbsoluteMaxJumpWindow = 45 * time.Minute
-	// Типичный periodic (~5 мин): >1500 м — подозрительно (островки ловят «туда-обратно»).
-	trackPeriodicMinGap      = 3*time.Minute + 30*time.Second
-	trackPeriodicMaxGap      = 9 * time.Minute
-	trackPeriodicMaxJumpM    = 1500.0
-	islandReturnRadiusM      = 130.0
-	islandMinJumpM           = 200.0
-	maxIslandSpan            = 30 * time.Minute
+	trackMaxSpeedMPS   = 25.0 // ~90 км/ч — выше считаем телепортом
+	trackBatchWindow   = 10 * time.Second
+	trackBatchMaxJumpM = 250.0
+	islandReturnRadiusM = 130.0
+	islandMinJumpM      = 200.0
+	maxIslandSpan       = 30 * time.Minute
 )
 
 func sortLocationsByTrackSort(locs []models.Location) []models.Location {
@@ -54,20 +45,10 @@ func IsTrackOutlierFromPrev(prev, curr models.Location) bool {
 	if dt <= trackBatchWindow {
 		return dist > trackBatchMaxJumpM
 	}
-	if dt >= trackPeriodicMinGap && dt <= trackPeriodicMaxGap && dist > trackPeriodicMaxJumpM {
-		return true
-	}
-	if dt > 0 && dt <= trackAbsoluteMaxJumpWindow && dist > trackAbsoluteMaxJumpM {
-		return true
-	}
-	if dt <= trackShortGap {
-		return dist > trackShortGapMaxJumpM
-	}
 	if dt > 0 {
-		speed := dist / dt.Seconds()
-		return speed > trackMaxSpeedMPS
+		return dist/dt.Seconds() > trackMaxSpeedMPS
 	}
-	return dist > trackBatchMaxJumpM
+	return false
 }
 
 // FilterTrackOutliers оставляет точки, образующие физически возможный трек.
@@ -141,7 +122,7 @@ func FilterGpsIslands(locs []models.Location) []models.Location {
 					}
 				}
 			}
-			if allFar {
+			if allFar && isGlitchIsland(anchor, locs, i, j) {
 				i = j
 				continue
 			}
@@ -150,6 +131,27 @@ func FilterGpsIslands(locs []models.Location) []models.Location {
 		i++
 	}
 	return out
+}
+
+// isGlitchIsland — промежуточные точки скучены у «ложной» позиции, а не размазаны вдоль маршрута.
+func isGlitchIsland(anchor models.Location, locs []models.Location, i, j int) bool {
+	if j <= i {
+		return false
+	}
+	if j == i+1 {
+		return true
+	}
+	maxInternal := 0.0
+	for a := i; a < j; a++ {
+		for b := a + 1; b < j; b++ {
+			d := haversineDistanceM(locs[a].Latitude, locs[a].Longitude, locs[b].Latitude, locs[b].Longitude)
+			if d > maxInternal {
+				maxInternal = d
+			}
+		}
+	}
+	dAnchorFirst := haversineDistanceM(anchor.Latitude, anchor.Longitude, locs[i].Latitude, locs[i].Longitude)
+	return dAnchorFirst >= islandMinJumpM && maxInternal < islandMinJumpM
 }
 
 func trackOutlierBaseline(kept []models.Location) *models.Location {

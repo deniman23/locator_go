@@ -65,8 +65,8 @@ func TestIsTrackOutlierFromPrev_periodicFiveMinJump(t *testing.T) {
 		Latitude: 53.87069, Longitude: 27.529505,
 		CapturedAt: &jumpAt, CreatedAt: jumpAt,
 	}
-	if !IsTrackOutlierFromPrev(prev, curr) {
-		t.Fatal("expected >1.5km in 5min periodic to be outlier")
+	if IsTrackOutlierFromPrev(prev, curr) {
+		t.Fatal("expected ~2km in 5min drive to be kept (not outlier)")
 	}
 }
 
@@ -121,16 +121,24 @@ func TestFilterTrackOutliers_singleSandwichPoint(t *testing.T) {
 	}
 }
 
-func TestFilterTrackOutliers_smallRealMoveKept(t *testing.T) {
-	base := time.Date(2026, 7, 3, 8, 0, 0, 0, time.UTC)
+func TestFilterTrackOutliers_driveKeepsMinutePoints(t *testing.T) {
+	base := time.Date(2026, 7, 5, 8, 0, 0, 0, time.UTC)
 	locs := []models.Location{
-		{ID: 1, Latitude: 53.88508, Longitude: 27.50882, CapturedAt: &base, CreatedAt: base},
-		{ID: 2, Latitude: 53.88512, Longitude: 27.50890, CapturedAt: ptrTime(base.Add(5 * time.Minute)), CreatedAt: base.Add(5 * time.Minute)},
-		{ID: 3, Latitude: 53.88518, Longitude: 27.50905, CapturedAt: ptrTime(base.Add(10 * time.Minute)), CreatedAt: base.Add(10 * time.Minute)},
+		{ID: 9000, Latitude: 53.885, Longitude: 27.510, CapturedAt: &base, CreatedAt: base},
+	}
+	lat, lon := 53.885, 27.510
+	for i := 1; i <= 20; i++ {
+		at := base.Add(time.Duration(i) * time.Minute)
+		lat += 0.003
+		lon += 0.004
+		tCopy := at
+		locs = append(locs, models.Location{
+			ID: 9000 + i, Latitude: lat, Longitude: lon, CapturedAt: &tCopy, CreatedAt: at,
+		})
 	}
 	out := FilterTrackOutliers(locs)
-	if len(out) != 3 {
-		t.Fatalf("expected all small moves kept, got %d", len(out))
+	if len(out) != len(locs) {
+		t.Fatalf("expected all %d drive points kept, got %d", len(locs), len(out))
 	}
 }
 

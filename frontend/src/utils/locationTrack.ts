@@ -1,22 +1,11 @@
 import type { Location } from '../types/models';
 
-/** ~90 км/ч — выше считаем GPS-выбросом */
+/** ~90 км/ч — выше считаем GPS-телепортом */
 const TRACK_MAX_SPEED_MPS = 25;
 /** Окно пакетной отправки офлайн-очереди */
 const TRACK_BATCH_WINDOW_MS = 10_000;
 /** Макс. скачок при пакетной отправке (м) */
 const TRACK_BATCH_MAX_JUMP_M = 250;
-/** Короткий интервал между точками */
-const TRACK_SHORT_GAP_MS = 2 * 60_000;
-/** Макс. скачок за короткий интервал (м) */
-const TRACK_SHORT_GAP_MAX_JUMP_M = 500;
-/** Макс. скачок за разумный интервал (после backfill офлайн-очереди) */
-const TRACK_ABSOLUTE_MAX_JUMP_M = 1500;
-const TRACK_ABSOLUTE_MAX_JUMP_MS = 45 * 60_000;
-/** Типичный интервал periodic (~5 мин): скачок >1500 м — подозрительно (смотрим по факту) */
-const TRACK_PERIODIC_MIN_GAP_MS = 3.5 * 60_000;
-const TRACK_PERIODIC_MAX_GAP_MS = 9 * 60_000;
-const TRACK_PERIODIC_MAX_JUMP_M = 1500;
 /** «Островок»: ушёл далеко и вернулся к той же точке (кэш сети, выброс) */
 const ISLAND_RETURN_RADIUS_M = 130;
 const ISLAND_MIN_JUMP_M = 200;
@@ -46,17 +35,8 @@ function isTrackOutlierFromPrevAt(prev: Location, curr: Location, atMs: (loc: Lo
     const dtMs = tCurr - tPrev;
     if (dtMs < 0) return true;
     if (dtMs <= TRACK_BATCH_WINDOW_MS) return dist > TRACK_BATCH_MAX_JUMP_M;
-    if (
-        dtMs >= TRACK_PERIODIC_MIN_GAP_MS &&
-        dtMs <= TRACK_PERIODIC_MAX_GAP_MS &&
-        dist > TRACK_PERIODIC_MAX_JUMP_M
-    ) {
-        return true;
-    }
-    if (dtMs > 0 && dtMs <= TRACK_ABSOLUTE_MAX_JUMP_MS && dist > TRACK_ABSOLUTE_MAX_JUMP_M) return true;
-    if (dtMs <= TRACK_SHORT_GAP_MS) return dist > TRACK_SHORT_GAP_MAX_JUMP_M;
     if (dtMs > 0) return dist / (dtMs / 1000) > TRACK_MAX_SPEED_MPS;
-    return dist > TRACK_BATCH_MAX_JUMP_M;
+    return false;
 }
 
 /** Точка невозможна относительно предыдущей принятой. */
@@ -166,7 +146,7 @@ export function filterGpsIslands(locations: Location[]): Location[] {
                     }
                 }
             }
-            if (allFar) {
+            if (allFar && isGlitchIsland(anchor, locations, i, j)) {
                 i = j;
                 continue;
             }
@@ -175,6 +155,31 @@ export function filterGpsIslands(locations: Location[]): Location[] {
         i += 1;
     }
     return out;
+}
+
+/** Промежуточные точки скучены у «ложной» позиции, а не размазаны вдоль маршрута. */
+function isGlitchIsland(anchor: Location, locations: Location[], i: number, j: number): boolean {
+    if (j <= i) return false;
+    if (j === i + 1) return true;
+    let maxInternal = 0;
+    for (let a = i; a < j; a++) {
+        for (let b = a + 1; b < j; b++) {
+            const d = haversineMeters(
+                locations[a].latitude,
+                locations[a].longitude,
+                locations[b].latitude,
+                locations[b].longitude,
+            );
+            if (d > maxInternal) maxInternal = d;
+        }
+    }
+    const dAnchorFirst = haversineMeters(
+        anchor.latitude,
+        anchor.longitude,
+        locations[i].latitude,
+        locations[i].longitude,
+    );
+    return dAnchorFirst >= ISLAND_MIN_JUMP_M && maxInternal < ISLAND_MIN_JUMP_M;
 }
 
 /** Точки для линии трека: без выбросов, стоянки — одна точка на группу. */

@@ -98,9 +98,9 @@ func (dao *DeviceCommandDAO) ExpirePendingOlderThanType(cutoff time.Time, cmdTyp
 		Update("status", models.DeviceCommandStatusExpired).Error
 }
 
-func (dao *DeviceCommandDAO) CancelPendingForUser(userID int, excludeID string) error {
+func (dao *DeviceCommandDAO) CancelPendingForUser(userID int, cmdType, excludeID string) error {
 	q := dao.DB.Model(&models.DeviceCommand{}).
-		Where("user_id = ? AND status = ?", userID, models.DeviceCommandStatusPending)
+		Where("user_id = ? AND status = ? AND type = ?", userID, models.DeviceCommandStatusPending, cmdType)
 	if excludeID != "" {
 		q = q.Where("id <> ?", excludeID)
 	}

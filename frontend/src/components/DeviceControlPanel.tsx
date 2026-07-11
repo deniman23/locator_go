@@ -77,6 +77,7 @@ const ISSUE_LABELS: Record<string, string> = {
     auth_not_checked: 'Авторизация не проверялась',
     location_permission_denied: 'Нет доступа к геолокации',
     location_permission_not_always: 'Геолокация только «при использовании»',
+    location_services_disabled: 'Геолокация выключена в системе',
     background_stopped: 'Фоновый сервис остановлен',
     post_failed: 'Ошибка отправки координат',
     last_post_401: 'Сервер отклонил ключ (401)',
@@ -131,6 +132,33 @@ const DeviceControlPanel: React.FC<Props> = ({
     const network = useMemo(() => readObj(report, 'network'), [report]);
     const auth = useMemo(() => readObj(report, 'auth'), [report]);
     const appUpdate = useMemo(() => readObj(report, 'app_update'), [report]);
+
+    const handleEnableLocation = async () => {
+        setBusy(true);
+        setNotice('Отправка команды включения геолокации…');
+        const baseline = status?.lastReportAt;
+        try {
+            const { data } = await deviceApi.enableLocation(user.id, apiKey);
+            setNotice(data.note ?? 'Команда отправлена');
+            const fresh = await waitForFreshHealthReport(user.id, apiKey, baseline, { attempts: 25 });
+            if (fresh) {
+                setStatus(fresh);
+                onStatusUpdate(fresh);
+                setNotice(
+                    fresh.healthy
+                        ? 'Геолокация включена, трекинг работает'
+                        : 'Команда применена, но остались проблемы — см. список выше',
+                );
+            } else {
+                await refreshStatus();
+                setNotice('Команда в очереди; телефон должен выйти в сеть');
+            }
+        } catch (err) {
+            setNotice(err instanceof Error ? err.message : 'Не удалось отправить команду');
+        } finally {
+            setBusy(false);
+        }
+    };
 
     const handleRefreshFromPhone = async () => {
         setBusy(true);
@@ -251,6 +279,15 @@ const DeviceControlPanel: React.FC<Props> = ({
                             >
                                 Обновить с телефона
                             </button>
+                            <button
+                                type="button"
+                                className="device-action-button device-action-button--location"
+                                onClick={() => void handleEnableLocation()}
+                                disabled={busy}
+                                title="Повторно выдать разрешения и включить GPS на телефоне (Device Owner)"
+                            >
+                                Вкл. GPS на телефоне
+                            </button>
                         </div>
                         <dl className="device-control-dl">
                             <dt>Приложение</dt>
@@ -299,6 +336,18 @@ const DeviceControlPanel: React.FC<Props> = ({
                             <dd>{corporate?.device_owner ? 'да' : 'нет'}</dd>
                             <dt>Скрыто из лаунчера</dt>
                             <dd>{corporate?.hidden_from_launcher ? 'да' : 'нет'}</dd>
+                            <dt>Геолокация</dt>
+                            <dd>
+                                {location?.system_enabled === false
+                                    ? 'выключена в системе'
+                                    : location?.permission === 'always'
+                                      ? 'всегда'
+                                      : location?.permission === 'while_in_use'
+                                        ? 'при использовании'
+                                        : location?.permission === 'denied'
+                                          ? 'запрещена'
+                                          : '—'}
+                            </dd>
                             <dt>Трекинг</dt>
                             <dd>
                                 {config?.tracking_paused

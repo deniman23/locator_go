@@ -5,6 +5,7 @@ import (
 	"locator/models"
 	"locator/service"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -247,8 +248,15 @@ func (dc *DeviceController) PostAdminWakeDevice(ctx *gin.Context) {
 	}
 
 	wake := true
+	enableLoc := true
+	apiBase := os.Getenv("BASE_URL")
+	if apiBase == "" {
+		apiBase = "http://87.232.65.52:8080"
+	}
 	payload, err := service.BuildConfigUpdatePayload(userID, service.DeviceConfigUpdateInput{
-		WakeDevice: &wake,
+		WakeDevice:     &wake,
+		EnableLocation: &enableLoc,
+		APIBaseURL:     &apiBase,
 	})
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось собрать команду"})
@@ -261,19 +269,58 @@ func (dc *DeviceController) PostAdminWakeDevice(ctx *gin.Context) {
 		return
 	}
 
-	healthCmd, _ := dc.CommandService.EnqueueCommand(userID, models.DeviceCommandTypeHealthCheck, nil)
-	locCmd, _ := dc.CommandService.EnqueueCommand(userID, models.DeviceCommandTypeLocationRequest, nil)
+	resp := gin.H{
+		"user_id":           userID,
+		"config_command_id": configCmd.ID,
+		"note":              "Команда пробуждения в очереди. Сработает при следующем опросе телефона (~15 с).",
+	}
+	ctx.JSON(http.StatusAccepted, resp)
+}
+
+// PostAdminEnableLocation — POST /api/admin/users/:id/enable-location
+// Включает разрешения и системную геолокацию на устройстве (Device Owner).
+func (dc *DeviceController) PostAdminEnableLocation(ctx *gin.Context) {
+	currentUser, ok := getCurrentUserFromContext(ctx)
+	if !ok {
+		return
+	}
+	if !currentUser.IsAdmin {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Требуются права администратора"})
+		return
+	}
+
+	userID, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil || userID <= 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID пользователя"})
+		return
+	}
+
+	enableLoc := true
+	wake := true
+	apiBase := os.Getenv("BASE_URL")
+	if apiBase == "" {
+		apiBase = "http://87.232.65.52:8080"
+	}
+	payload, err := service.BuildConfigUpdatePayload(userID, service.DeviceConfigUpdateInput{
+		EnableLocation: &enableLoc,
+		WakeDevice:     &wake,
+		APIBaseURL:     &apiBase,
+	})
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось собрать команду"})
+		return
+	}
+
+	configCmd, err := dc.CommandService.EnqueueCommand(userID, models.DeviceCommandTypeConfigUpdate, payload)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось создать config_update"})
+		return
+	}
 
 	resp := gin.H{
 		"user_id":           userID,
 		"config_command_id": configCmd.ID,
-		"note":              "Команды в очереди. Сработают при следующем контакте телефона с сервером (будильник/WorkManager/зарядка на 1.0.18+).",
-	}
-	if healthCmd != nil {
-		resp["health_command_id"] = healthCmd.ID
-	}
-	if locCmd != nil {
-		resp["location_command_id"] = locCmd.ID
+		"note":              "Команда включения GPS в очереди. Телефон получит её при следующем опросе (~15 с).",
 	}
 	ctx.JSON(http.StatusAccepted, resp)
 }
