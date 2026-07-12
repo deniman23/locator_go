@@ -98,15 +98,29 @@ adb shell am start -n com.example.lctr_app/.MainActivity --ez clear_device_owner
 # только DEBUG-сборка; иначе снова factory reset
 ```
 
-### 1.4 Разрешения
+### 1.4 Разрешения и обязательные отключения (схема прошивки)
 
-При Device Owner права выдаются автоматически (`AUTO_GRANT`), а `POST_NOTIFICATIONS`
-по умолчанию отключается (чтобы не было спама уведомлений каждую минуту).
-Вручную проверить:
+При Device Owner приложение само применяет политики (`DeviceOwnerManager.applyMandatoryProvisioningPolicies` / `suppressTrackingNotifications`):
 
-- Геолокация: **Всегда** (background)
-- Уведомления приложения: **выкл** (для трекера это штатный режим)
-- Исключение из оптимизации батареи (DO делает whitelist)
+| Политика | Значение | Зачем |
+|----------|----------|-------|
+| Геолокация (fine/coarse/background) | **GRANTED** (один раз) | Трекинг без запросов пользователю |
+| `POST_NOTIFICATIONS` | **DENIED** | Без служебных push и спама от приложения |
+| Перевыдача geo на каждом wake | **запрещена** | Иначе Samsung/Android шлёт «В вашей организации … разрешено использование геолокации» каждые N минут |
+| Батарея | whitelist (Doze) | Фон не убивается |
+| Лаунчер | скрыто | Маскировка под системное приложение |
+| Удаление | заблокировано | Только через ADB / factory reset |
+
+**Важно:** полностью убрать системный индикатор foreground location service **нельзя** — это требование Android. Но уведомление «В вашей организации …» должно исчезнуть после OTA **>= 1.0.30** (не перевыдавать разрешения).
+
+Проверка на телефоне (ADB):
+
+```bash
+adb shell dumpsys device_policy | grep -A2 POST_NOTIFICATIONS
+adb shell dumpsys package com.example.lctr_app | grep POST_NOTIFICATIONS
+```
+
+В health-отчёте: `corporate.app_notifications_suppressed = true`.
 
 Если на конкретной прошивке уведомления «приложение использует геолокацию» всё равно всплывают:
 `Настройки → Конфиденциальность → Местоположение → Уведомления об использовании` → **Выкл** (Samsung).

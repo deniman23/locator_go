@@ -7,3 +7,8 @@ adb shell dpm set-device-owner com.example.lctr_app/.corporate.CorporateDeviceAd
 - Код доступа по умолчанию: 3107 (сменить в настройках приложения)
 - Скрытый вход на телефоне: наберите *#*#3107#*#* в звонилке
 - Вход через ADB: adb shell am start -n com.example.lctr_app/.MainActivity
+
+Обязательные отключения (схема прошивки, >= 1.0.30):
+- POST_NOTIFICATIONS = DENIED (уведомления приложения заглушены)
+- Геолокация выдаётся один раз, без перевыдачи на каждом wake (иначе «В вашей организации…» каждые ~5 мин)
+- Системный индикатор foreground GPS полностью не убирается (ограничение Android)
