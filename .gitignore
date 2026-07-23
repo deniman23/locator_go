@@ -5,3 +5,16 @@ backend/static
 backups/*.sql.gz
 osrm-data/
 /.cursor
+
+# deps & OS
+node_modules/
+.DS_Store
+
+# builds / binaries
+*.apk
+
+# Playwright (e2e)
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/
+e2e/playwright/.cache/
