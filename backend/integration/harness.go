@@ -43,8 +43,14 @@ func openTestDB(t *testing.T) *gorm.DB {
 	port := envOr("DB_PORT", "5433")
 	user := envOr("DB_USER", "locator_user")
 	pass := envOr("DB_PASSWORD", "change_me")
-	name := envOr("DB_NAME", "locator_db")
+	// Never default to the production DB name — harness TRUNCATEs all tables.
+	name := envOr("DB_NAME", "locator_db_test")
 	ssl := envOr("DB_SSLMODE", "disable")
+
+	if name == "locator_db" && os.Getenv("ALLOW_PROD_DB_WIPE") != "1" {
+		t.Fatalf("refusing to run integration tests against DB_NAME=%q (production). "+
+			"Use DB_NAME=locator_db_test (or set ALLOW_PROD_DB_WIPE=1 only for disposable DBs)", name)
+	}
 
 	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		host, port, user, pass, name, ssl)
@@ -52,7 +58,7 @@ func openTestDB(t *testing.T) *gorm.DB {
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
-		t.Skipf("postgres unavailable (%v); start docker compose db", err)
+		t.Skipf("postgres unavailable (%v); create DB %q and start docker compose db", err, name)
 	}
 	return db
 }

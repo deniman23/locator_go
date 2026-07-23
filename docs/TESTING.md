@@ -24,15 +24,20 @@ Frontend track filters mirror Go cases in `backend/service/track_filter_test.go`
 
 ## Integration
 
-Requires Postgres (docker compose `db` maps `127.0.0.1:5433`, CI uses `5432`).
+Requires a **dedicated** Postgres database. The harness `TRUNCATE`s all domain tables — never point it at production `locator_db`.
 
 ```bash
 docker compose up -d db
+# one-time: create isolated test DB
+docker exec locator-db psql -U locator_user -d postgres -c "CREATE DATABASE locator_db_test OWNER locator_user;"
+
 export INTEGRATION_TEST=1
 export DB_HOST=127.0.0.1 DB_PORT=5433
-export DB_USER=locator_user DB_PASSWORD=change_me DB_NAME=locator_db DB_SSLMODE=disable
+export DB_USER=locator_user DB_PASSWORD=change_me DB_NAME=locator_db_test DB_SSLMODE=disable
 make test-integration
 ```
+
+Default `DB_NAME` is `locator_db_test`. Using `locator_db` fails unless `ALLOW_PROD_DB_WIPE=1` (CI ephemeral Postgres only).
 
 Without Postgres the suite **skips** (does not fail). CI `integration` job always has Postgres.
 

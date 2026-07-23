@@ -60,8 +60,10 @@ jobs:
       DB_PORT: "5432"
       DB_USER: locator_user
       DB_PASSWORD: change_me
+      # Ephemeral CI Postgres only — ALLOW_PROD_DB_WIPE required because name is locator_db
       DB_NAME: locator_db
       DB_SSLMODE: disable
+      ALLOW_PROD_DB_WIPE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
