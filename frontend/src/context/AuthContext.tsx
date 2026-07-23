@@ -1,12 +1,15 @@
 // context/AuthContext.tsx
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import type {AuthState} from '../types/models';
+import type { AuthState } from '../types/models';
 import { userApi } from '../services/api';
 
 interface AuthContextType extends AuthState {
     login: (apiKey: string) => Promise<void>;
     logout: () => void;
+    /** Silent profile refresh — does not toggle global `loading` (avoids remounting pages). */
     refreshUser: () => Promise<void>;
+    /** Replace session key after QR regenerate (self) without full remount flash. */
+    adoptApiKey: (apiKey: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -19,16 +22,23 @@ export const useAuth = () => {
     return context;
 };
 
+const expiredSession = (error: string): AuthState => ({
+    isAuthenticated: false,
+    user: null,
+    apiKey: null,
+    loading: false,
+    error,
+});
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [state, setState] = useState<AuthState>({
         isAuthenticated: false,
         user: null,
         apiKey: null,
         loading: true,
-        error: null
+        error: null,
     });
 
-    // Функция для обновления информации о текущем пользователе
     const logout = useCallback(() => {
         sessionStorage.removeItem('apiKey');
         setState({
@@ -36,7 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             user: null,
             apiKey: null,
             loading: false,
-            error: null
+            error: null,
         });
     }, []);
 
@@ -44,55 +54,68 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!state.apiKey) return;
 
         try {
-            setState(prev => ({ ...prev, loading: true }));
+            // Do not set loading:true — ProtectedRoute would unmount the whole page tree.
             const user = await userApi.getCurrentUser(state.apiKey);
 
-            setState(prev => ({
-                ...prev,
-                user,
-                loading: false
-            }));
-
-            // Проверяем, является ли пользователь администратором
             if (!user.is_admin) {
-                logout();
-                setState(prev => ({
-                    ...prev,
-                    error: 'Доступ запрещен: требуются права администратора'
-                }));
+                sessionStorage.removeItem('apiKey');
+                setState(
+                    expiredSession('Доступ запрещен: требуются права администратора'),
+                );
+                return;
             }
 
-            console.log('Обновлена информация о пользователе:', user);
+            setState((prev) => ({
+                ...prev,
+                user,
+                error: null,
+            }));
         } catch (error) {
             console.error('Ошибка обновления данных пользователя:', error);
-            setState(prev => ({
-                ...prev,
-                loading: false,
-                error: 'Ошибка получения данных пользователя'
-            }));
+            sessionStorage.removeItem('apiKey');
+            setState(expiredSession('Сессия истекла. Пожалуйста, войдите снова.'));
         }
-    }, [logout, state.apiKey]);
+    }, [state.apiKey]);
+
+    const adoptApiKey = useCallback(async (newApiKey: string) => {
+        sessionStorage.setItem('apiKey', newApiKey);
+        try {
+            const user = await userApi.getCurrentUser(newApiKey);
+            if (!user.is_admin) {
+                sessionStorage.removeItem('apiKey');
+                setState(
+                    expiredSession('Доступ запрещен: требуются права администратора'),
+                );
+                return;
+            }
+            setState({
+                isAuthenticated: true,
+                user,
+                apiKey: newApiKey,
+                loading: false,
+                error: null,
+            });
+        } catch (error) {
+            console.error('Ошибка принятия нового API-ключа:', error);
+            sessionStorage.removeItem('apiKey');
+            setState(expiredSession('Сессия истекла. Пожалуйста, войдите снова.'));
+            throw error;
+        }
+    }, []);
 
     const login = useCallback(async (apiKey: string) => {
         try {
-            setState(prev => ({ ...prev, loading: true, error: null }));
+            setState((prev) => ({ ...prev, loading: true, error: null }));
 
-            // Аутентификация пользователя с API ключом
             const user = await userApi.authenticate(apiKey);
 
-            // Проверяем, является ли пользователь администратором
             if (!user.is_admin) {
-                setState({
-                    isAuthenticated: false,
-                    user: null,
-                    apiKey: null,
-                    loading: false,
-                    error: 'Доступ запрещен: требуются права администратора'
-                });
+                setState(
+                    expiredSession('Доступ запрещен: требуются права администратора'),
+                );
                 throw new Error('Доступ запрещен: требуются права администратора');
             }
 
-            // Сохраняем API ключ в sessionStorage для текущей сессии
             sessionStorage.setItem('apiKey', apiKey);
 
             setState({
@@ -100,45 +123,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 user,
                 apiKey,
                 loading: false,
-                error: null
+                error: null,
             });
-
-            console.log('Пользователь успешно вошел:', user);
         } catch (error) {
-            setState({
-                isAuthenticated: false,
-                user: null,
-                apiKey: null,
-                loading: false,
-                error: error instanceof Error ? error.message : 'Ошибка авторизации'
-            });
+            setState(
+                expiredSession(
+                    error instanceof Error ? error.message : 'Ошибка авторизации',
+                ),
+            );
             throw error;
         }
     }, []);
 
-    // Проверяем наличие сохраненного API ключа при загрузке
     useEffect(() => {
         const savedApiKey = sessionStorage.getItem('apiKey');
         if (savedApiKey) {
             login(savedApiKey).catch(() => {
-                // Если ключ не валидный, очищаем sessionStorage
                 sessionStorage.removeItem('apiKey');
-                setState({
-                    isAuthenticated: false,
-                    user: null,
-                    apiKey: null,
-                    loading: false,
-                    error: 'Сессия истекла. Пожалуйста, войдите снова.'
-                });
+                setState(expiredSession('Сессия истекла. Пожалуйста, войдите снова.'));
             });
         } else {
-            setState(prev => ({ ...prev, loading: false }));
+            setState((prev) => ({ ...prev, loading: false }));
         }
     }, [login]);
 
     const contextValue = useMemo(
-        () => ({ ...state, login, logout, refreshUser }),
-        [state, login, logout, refreshUser]
+        () => ({ ...state, login, logout, refreshUser, adoptApiKey }),
+        [state, login, logout, refreshUser, adoptApiKey],
     );
 
     return (

@@ -1,6 +1,6 @@
 {
-  "pid": 15440,
-  "version": "0.9.9",
-  "socketPath": "/Users/daniiltolkachev/GolandProjects/locator/.codegraph/daemon.sock",
-  "startedAt": 1782927608134
+  "pid": 2888303,
+  "version": "1.5.0",
+  "socketPath": "/root/locator_go/.codegraph/daemon.sock",
+  "startedAt": 1784807306430
 }

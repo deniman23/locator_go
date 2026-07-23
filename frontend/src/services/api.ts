@@ -51,9 +51,9 @@ export const locationApi = {
             }
         }),
 
-    /** Последняя позиция текущего пользователя (по API-ключу) */
+    /** Последняя позиция текущего пользователя (по API-ключу) → GET /location/single */
     getCurrent: (apiKey?: string, maxAgeSeconds?: number) =>
-        api.get<Location>(`/location/current`, {
+        api.get<Location>(`/location/single`, {
             ...withApiKey(apiKey),
             params: maxAgeSeconds != null ? { max_age_seconds: maxAgeSeconds } : undefined
         }),

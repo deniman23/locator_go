@@ -66,7 +66,7 @@ function reportSummary(report: Record<string, unknown>): string[] {
 }
 
 const UserManagement: React.FC = () => {
-    const { apiKey, user: currentUser, refreshUser } = useAuth();
+    const { apiKey, user: currentUser, refreshUser, adoptApiKey } = useAuth();
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -272,6 +272,10 @@ const UserManagement: React.FC = () => {
                 apiKey: result.api_key,
                 pushedToDevice: Boolean(result.config_command_id),
             });
+            // Regenerating own key would orphan sessionStorage unless we adopt the new key.
+            if (currentUser?.id === user.id) {
+                await adoptApiKey(result.api_key);
+            }
             setNotice(
                 user.id,
                 result.config_command_id

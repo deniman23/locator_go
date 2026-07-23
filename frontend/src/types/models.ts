@@ -27,7 +27,7 @@ export interface Location {
     captured_at?: string;
     created_at: string;
     updated_at: string;
-    /** Секунд с момента последней точки (GET /location/single|current) */
+    /** Секунд с момента последней точки (GET /location/single) */
     age_seconds?: number;
 }
 

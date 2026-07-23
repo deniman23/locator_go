@@ -7,7 +7,7 @@ import (
 )
 
 func TestShouldSkipPoorLocation_poorAccuracy(t *testing.T) {
-	acc := 120.0
+	acc := 160.0 // выше defaultMaxPeriodicAccuracyM (150)
 	skip, reason := ShouldSkipPoorLocation(models.LocationSourcePeriodic, &acc, nil, 53.9, 27.5)
 	if !skip || reason != "poor_accuracy" {
 		t.Fatalf("want poor_accuracy skip, got skip=%v reason=%q", skip, reason)

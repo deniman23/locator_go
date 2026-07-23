@@ -89,6 +89,8 @@ const MapComponent: React.FC = () => {
     const { apiKey, user } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
     const routeParamsApplied = useRef(false);
+    /** Survives until getAll applies so deep-link uid is not lost if selection state is still []. */
+    const pendingDeepLinkUserIdRef = useRef<number | null>(null);
     const day0 = useMemo(() => minskDayBounds(0), []);
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [userLocations, setUserLocations] = useState<Location[]>([]);
@@ -129,7 +131,19 @@ const MapComponent: React.FC = () => {
             .getAll(apiKey)
             .then(users => {
                 setAllUsers(users);
-                setSelectedUserIds(users.map(u => u.id));
+                // Do not overwrite Visits→Map deep-link selection when getAll finishes later.
+                setSelectedUserIds(prev => {
+                    const pending = pendingDeepLinkUserIdRef.current;
+                    if (pending != null && users.some(u => u.id === pending)) {
+                        pendingDeepLinkUserIdRef.current = null;
+                        return [pending];
+                    }
+                    if (routeParamsApplied.current) {
+                        const kept = prev.filter(id => users.some(u => u.id === id));
+                        return kept.length > 0 ? kept : prev;
+                    }
+                    return users.map(u => u.id);
+                });
             })
             .catch(err => console.error('Не удалось загрузить пользователей:', err));
     }, [apiKey]);
@@ -193,6 +207,7 @@ const MapComponent: React.FC = () => {
                 localStorage.setItem('mapLoaded', 'true');
             }
         } catch (e: unknown) {
+            if (fetchGen !== fetchGenerationRef.current) return;
             console.error('[Map] Ошибка загрузки:', e);
             const message =
                 typeof e === 'object' &&
@@ -206,7 +221,9 @@ const MapComponent: React.FC = () => {
                         : 'Ошибка при загрузке данных';
             setError(message);
         } finally {
-            setLoading(false);
+            if (fetchGen === fetchGenerationRef.current) {
+                setLoading(false);
+            }
         }
     }, []);
 
@@ -227,6 +244,7 @@ const MapComponent: React.FC = () => {
         if (Number.isNaN(uid)) return;
 
         routeParamsApplied.current = true;
+        pendingDeepLinkUserIdRef.current = uid;
         setSelectedUserIds([uid]);
         setFromTime(from);
         setToTime(to);
