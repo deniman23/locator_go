@@ -1,0 +1,165 @@
+# CI: unit + integration on PR/main; e2e smoke on main.
+
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache-dependency-path: backend/go.sum
+
+      - name: Go unit tests
+        working-directory: backend
+        run: go test $(go list ./... | grep -v '/integration')
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run test:run
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:13-alpine
+        env:
+          POSTGRES_USER: locator_user
+          POSTGRES_PASSWORD: change_me
+          POSTGRES_DB: locator_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U locator_user -d locator_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      INTEGRATION_TEST: "1"
+      DB_HOST: 127.0.0.1
+      DB_PORT: "5432"
+      DB_USER: locator_user
+      DB_PASSWORD: change_me
+      DB_NAME: locator_db
+      DB_SSLMODE: disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache-dependency-path: backend/go.sum
+      - name: Integration tests
+        working-directory: backend
+        run: go test ./integration/ -count=1 -timeout 180s
+
+  e2e:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [unit, integration]
+    services:
+      postgres:
+        image: postgres:13-alpine
+        env:
+          POSTGRES_USER: locator_user
+          POSTGRES_PASSWORD: change_me
+          POSTGRES_DB: locator_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U locator_user -d locator_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      rabbitmq:
+        image: rabbitmq:3-management-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: "5432"
+      DB_USER: locator_user
+      DB_PASSWORD: change_me
+      DB_NAME: locator_db
+      DB_SSLMODE: disable
+      RABBITMQ_HOST: 127.0.0.1
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: guest
+      RABBITMQ_PASS: guest
+      DEFAULT_ADMIN_NAME: admin
+      DEFAULT_ADMIN_API_KEY: e2e-admin-key-change-me
+      BASE_URL: http://127.0.0.1:8080
+      GIN_MODE: release
+      E2E_BASE_URL: http://127.0.0.1:4173
+      E2E_API_KEY: e2e-admin-key-change-me
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache-dependency-path: backend/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Start backend
+        working-directory: backend
+        run: |
+          mkdir -p logs static/qrcode static/releases
+          go run . &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8080/healthz && break
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:8080/healthz
+
+      - name: Build and preview frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          npx vite preview --host 127.0.0.1 --port 4173 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:4173/ && break
+            sleep 1
+          done
+
+      - name: Install Playwright
+        working-directory: e2e
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: E2E smoke
+        working-directory: e2e
+        run: npx playwright test
