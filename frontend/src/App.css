@@ -1146,6 +1146,38 @@ main {
   background-color: #f9f9f9;
 }
 
+.user-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.user-rename-button {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.user-rename-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 12rem;
+}
+
+.user-rename-form input {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.95rem;
+}
+
+.user-rename-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
 .map-error {
   margin-bottom: 10px;
 }

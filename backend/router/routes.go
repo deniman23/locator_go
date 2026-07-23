@@ -111,6 +111,7 @@ func InitRoutes(
 		userGroup := protectedApiGroup.Group("/users")
 		{
 			userGroup.POST("/", userController.CreateUser)
+			userGroup.PUT("/:id", userController.UpdateUser)
 			userGroup.GET("/:id", userController.GetUser)
 			userGroup.GET("/", userController.GetAllUsers)
 			userGroup.GET("/qr-code", userController.GetQRCode)

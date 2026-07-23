@@ -66,7 +66,7 @@ function reportSummary(report: Record<string, unknown>): string[] {
 }
 
 const UserManagement: React.FC = () => {
-    const { apiKey, user: currentUser } = useAuth();
+    const { apiKey, user: currentUser, refreshUser } = useAuth();
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -85,6 +85,11 @@ const UserManagement: React.FC = () => {
     const [newUserIsAdmin, setNewUserIsAdmin] = useState(false);
     const [creating, setCreating] = useState(false);
     const [createError, setCreateError] = useState<string | null>(null);
+
+    const [editingUserId, setEditingUserId] = useState<number | null>(null);
+    const [editingName, setEditingName] = useState('');
+    const [renaming, setRenaming] = useState(false);
+    const [renameError, setRenameError] = useState<string | null>(null);
 
     const [deviceStatus, setDeviceStatus] = useState<Record<number, UserDeviceStatus>>({});
     const [statusLoading, setStatusLoading] = useState(false);
@@ -185,6 +190,49 @@ const UserManagement: React.FC = () => {
             setCreateError(err instanceof Error ? err.message : 'Ошибка при создании пользователя');
         } finally {
             setCreating(false);
+        }
+    };
+
+    const handleStartRename = (user: User) => {
+        setEditingUserId(user.id);
+        setEditingName(user.name);
+        setRenameError(null);
+    };
+
+    const handleCancelRename = () => {
+        setEditingUserId(null);
+        setEditingName('');
+        setRenameError(null);
+    };
+
+    const handleSaveRename = async (userId: number) => {
+        if (!apiKey) return;
+        const name = editingName.trim();
+        if (!name) {
+            setRenameError('Имя не может быть пустым');
+            return;
+        }
+
+        try {
+            setRenaming(true);
+            setRenameError(null);
+            const updated = await userApi.update(userId, name, apiKey);
+            setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, name: updated.name } : u)));
+            if (selectedUser?.id === userId) {
+                setSelectedUser((prev) => (prev ? { ...prev, name: updated.name } : prev));
+            }
+            if (devicePanelUser?.id === userId) {
+                setDevicePanelUser((prev) => (prev ? { ...prev, name: updated.name } : prev));
+            }
+            if (currentUser?.id === userId) {
+                await refreshUser();
+            }
+            setEditingUserId(null);
+            setEditingName('');
+        } catch (err) {
+            setRenameError(err instanceof Error ? err.message : 'Ошибка при изменении имени');
+        } finally {
+            setRenaming(false);
         }
     };
 
@@ -574,7 +622,62 @@ const UserManagement: React.FC = () => {
                             return (
                                 <tr key={user.id}>
                                     <td>{user.id}</td>
-                                    <td>{user.name}</td>
+                                    <td>
+                                        {editingUserId === user.id ? (
+                                            <div className="user-rename-form">
+                                                <input
+                                                    type="text"
+                                                    value={editingName}
+                                                    onChange={(e) => setEditingName(e.target.value)}
+                                                    disabled={renaming}
+                                                    autoFocus
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            void handleSaveRename(user.id);
+                                                        } else if (e.key === 'Escape') {
+                                                            handleCancelRename();
+                                                        }
+                                                    }}
+                                                    aria-label="Новое имя пользователя"
+                                                />
+                                                <div className="user-rename-actions">
+                                                    <button
+                                                        type="button"
+                                                        className="device-action-button"
+                                                        onClick={() => void handleSaveRename(user.id)}
+                                                        disabled={renaming || !editingName.trim()}
+                                                    >
+                                                        {renaming ? 'Сохранение…' : 'Сохранить'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className="device-action-button"
+                                                        onClick={handleCancelRename}
+                                                        disabled={renaming}
+                                                    >
+                                                        Отмена
+                                                    </button>
+                                                </div>
+                                                {renameError && editingUserId === user.id && (
+                                                    <p className="device-action-notice">{renameError}</p>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="user-name-cell">
+                                                <span>{user.name}</span>
+                                                <button
+                                                    type="button"
+                                                    className="device-action-button user-rename-button"
+                                                    onClick={() => handleStartRename(user)}
+                                                    disabled={busy || renaming}
+                                                    title="Изменить имя"
+                                                >
+                                                    Изменить
+                                                </button>
+                                            </div>
+                                        )}
+                                    </td>
                                     <td>{user.is_admin ? 'Администратор' : 'Пользователь'}</td>
                                     <td>
                                         {status ? (

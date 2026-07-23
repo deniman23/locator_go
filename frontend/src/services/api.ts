@@ -378,6 +378,24 @@ export const userApi = {
         return response.json();
     },
 
+    update: async (id: number, name: string, apiKey: string): Promise<User> => {
+        const response = await fetch(`/api/users/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': apiKey
+            },
+            body: JSON.stringify({ name })
+        });
+
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || 'Ошибка при изменении имени пользователя');
+        }
+
+        return response.json();
+    },
+
     getQRCodeUrl: () => {
         // Здесь создаем URL с учетом текущего хоста и порта
         const baseUrl = window.location.origin;

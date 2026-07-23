@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"locator/models"
 	"locator/service"
@@ -80,6 +81,37 @@ func (uc *UserController) GetUser(ctx *gin.Context) {
 	}
 
 	user, err := uc.Service.GetUserByID(id)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Пользователь не найден"})
+		return
+	}
+	ctx.JSON(http.StatusOK, user)
+}
+
+// UpdateUser обрабатывает PUT-запрос для изменения имени пользователя.
+func (uc *UserController) UpdateUser(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID"})
+		return
+	}
+
+	var req struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Некорректные данные запроса"})
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Имя не может быть пустым"})
+		return
+	}
+
+	user, err := uc.Service.UpdateUserName(id, name)
 	if err != nil {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": "Пользователь не найден"})
 		return

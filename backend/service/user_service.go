@@ -134,6 +134,24 @@ func (svc *UserService) GetUserByID(id int) (*models.User, error) {
 	return user, nil
 }
 
+// UpdateUserName меняет отображаемое имя пользователя.
+func (svc *UserService) UpdateUserName(id int, name string) (*models.User, error) {
+	user, err := svc.DAO.GetByID(id)
+	if err != nil {
+		log.Printf("[UserService UpdateUserName] Пользователь с ID=%d не найден: %v", id, err)
+		return nil, err
+	}
+
+	user.Name = name
+	if err := svc.DAO.Update(user); err != nil {
+		log.Printf("[UserService UpdateUserName] Ошибка обновления пользователя ID=%d: %v", id, err)
+		return nil, err
+	}
+
+	log.Printf("[UserService UpdateUserName] Имя обновлено: ID=%d, Name=%s", user.ID, user.Name)
+	return user, nil
+}
+
 func apiBaseURL() string {
 	apiBase := os.Getenv("BASE_URL")
 	if apiBase == "" {
