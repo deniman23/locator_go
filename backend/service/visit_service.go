@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"locator/dao"
 	"locator/models"
 	"log"
 	"net/url"
@@ -13,12 +12,12 @@ import (
 
 // VisitService отвечает за работу с визитами (замер времени посещений).
 type VisitService struct {
-	DAO            *dao.VisitDAO
+	DAO            visitRepository
 	TravelSegments *TravelSegmentService
 }
 
 // NewVisitService создаёт новый экземпляр сервиса для работы с визитами.
-func NewVisitService(dao *dao.VisitDAO, travelSegments *TravelSegmentService) *VisitService {
+func NewVisitService(dao visitRepository, travelSegments *TravelSegmentService) *VisitService {
 	log.Printf("[NewVisitService] Инициализация сервиса визитов")
 	return &VisitService{DAO: dao, TravelSegments: travelSegments}
 }

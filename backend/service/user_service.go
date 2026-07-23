@@ -10,16 +10,15 @@ import (
 
 	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
-	"locator/dao"
 	"locator/models"
 )
 
 type UserService struct {
-	DAO *dao.UserDAO
+	DAO userRepository
 }
 
 // NewUserService создаёт новый экземпляр UserService.
-func NewUserService(dao *dao.UserDAO) *UserService {
+func NewUserService(dao userRepository) *UserService {
 	log.Println("[UserService] Инициализация сервиса пользователей")
 	return &UserService{DAO: dao}
 }

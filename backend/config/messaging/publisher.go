@@ -23,6 +23,10 @@ func NewPublisher(client *RabbitMQClient, exchange, routingKey string) *Publishe
 
 // Publish отправляет message (например, JSON-сериализованное событие) в очередь.
 func (p *Publisher) Publish(message []byte) error {
+	if p == nil || p.Client == nil || p.Client.Channel == nil {
+		// Tests and optional messaging: Publisher{} is a deliberate no-op.
+		return nil
+	}
 	return p.Client.Channel.Publish(
 		p.Exchange,   // обмен
 		p.RoutingKey, // ключ маршрутизации

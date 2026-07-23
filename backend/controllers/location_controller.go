@@ -230,8 +230,10 @@ func (lc *LocationController) PostLocation(ctx *gin.Context) {
 		OccurredAt: location.EffectiveAt(),
 		Source:     source,
 	}
-	if err := lc.Publisher.PublishJSON(event); err != nil {
-		log.Printf("[PostLocation] Ошибка публикации события userID=%d: %v", targetUserID, err)
+	if lc.Publisher != nil {
+		if err := lc.Publisher.PublishJSON(event); err != nil {
+			log.Printf("[PostLocation] Ошибка публикации события userID=%d: %v", targetUserID, err)
+		}
 	}
 
 	if requestID != "" {

@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"locator/dao"
 	"locator/models"
 	"log"
 	"math"
@@ -13,12 +12,12 @@ import (
 
 // LocationService отвечает за бизнес-логику, связанную с операциями над местоположениями.
 type LocationService struct {
-	DAO           *dao.LocationDAO
+	DAO           locationRepository
 	minskLocation *time.Location // Временная зона Минска (UTC+3)
 }
 
 // NewLocationService создаёт новый экземпляр сервиса и загружает временную зону для Минска.
-func NewLocationService(dao *dao.LocationDAO) *LocationService {
+func NewLocationService(dao locationRepository) *LocationService {
 	loc, err := time.LoadLocation("Europe/Minsk")
 	if err != nil {
 		log.Fatalf("Ошибка загрузки временной зоны Europe/Minsk: %v", err)

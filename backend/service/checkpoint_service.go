@@ -1,7 +1,6 @@
 package service
 
 import (
-	"locator/dao"
 	"locator/models"
 	"log"
 	"math"
@@ -10,11 +9,11 @@ import (
 
 // CheckpointService отвечает за бизнес-логику, связанную с операциями над чекпоинтами.
 type CheckpointService struct {
-	DAO *dao.CheckpointDAO
+	DAO checkpointRepository
 }
 
 // NewCheckpointService создаёт новый экземпляр CheckpointService.
-func NewCheckpointService(dao *dao.CheckpointDAO) *CheckpointService {
+func NewCheckpointService(dao checkpointRepository) *CheckpointService {
 	return &CheckpointService{DAO: dao}
 }
 

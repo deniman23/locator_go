@@ -52,6 +52,7 @@ func InitRoutes(
 		// Разрешаем всем пользователям создавать и получать локации
 		basicAuthGroup.POST("/location", locationController.PostLocation)
 		basicAuthGroup.GET("/location/single", locationController.GetLocation)
+		basicAuthGroup.GET("/location/current", locationController.GetLocation)
 
 		// Мобильный коннектор и legacy poll location request
 		basicAuthGroup.GET("/device/poll", deviceController.PollDevice)
