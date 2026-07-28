@@ -2,10 +2,12 @@ package service
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/skip2/go-qrcode"
@@ -13,8 +15,18 @@ import (
 	"locator/models"
 )
 
+const authCacheTTL = 10 * time.Minute
+
+// authCacheEntry holds a cached successful auth mapping (key hash → user ID + expiry).
+// We never store the plaintext key or the bcrypt hash in this cache.
+type authCacheEntry struct {
+	userID    int
+	expiresAt time.Time
+}
+
 type UserService struct {
-	DAO userRepository
+	DAO       userRepository
+	authCache sync.Map // sha256hex(providedKey) → *authCacheEntry
 }
 
 // NewUserService создаёт новый экземпляр UserService.
@@ -85,20 +97,38 @@ func (svc *UserService) CreateUser(name string, isAdmin bool, forceAPIKey ...str
 }
 
 // AuthenticateUser проверяет, соответствует ли предоставленный API‑ключ хешированному значению в базе.
-// AuthenticateUser проверяет API-ключ с правильной обработкой указателей
+// A process-local cache (SHA-256 key hash → user ID, 10 min TTL) avoids bcrypt×N on every poll.
+// On cache hit the user is reloaded from the DB by ID to ensure the record still exists.
 func (svc *UserService) AuthenticateUser(providedKey string) (*models.User, error) {
 	if providedKey == "" {
 		return nil, fmt.Errorf("API ключ не может быть пустым")
 	}
 
+	keyHash := sha256KeyHex(providedKey)
+
+	// Cache hit: single-row load + one bcrypt (O(1)). Re-check hash so rotated keys die immediately.
+	if raw, ok := svc.authCache.Load(keyHash); ok {
+		entry := raw.(*authCacheEntry)
+		if time.Now().Before(entry.expiresAt) {
+			user, err := svc.DAO.GetByID(entry.userID)
+			if err == nil && bcrypt.CompareHashAndPassword([]byte(user.ApiKey), []byte(providedKey)) == nil {
+				log.Printf("[AuthenticateUser] cache hit: ID=%d", user.ID)
+				return user, nil
+			}
+			// User gone, key rotated, or DB error — drop stale mapping.
+			svc.authCache.Delete(keyHash)
+		} else {
+			svc.authCache.Delete(keyHash)
+		}
+	}
+
+	// Cache miss: full GetAll + bcrypt scan.
 	users, err := svc.DAO.GetAll()
 	if err != nil {
 		return nil, fmt.Errorf("ошибка доступа к базе данных")
 	}
 
-	// Вместо работы с указателями в цикле, найдем ID подходящего пользователя
 	var matchedUserID int = -1
-
 	for _, user := range users {
 		if err := bcrypt.CompareHashAndPassword([]byte(user.ApiKey), []byte(providedKey)); err == nil {
 			matchedUserID = user.ID
@@ -108,19 +138,32 @@ func (svc *UserService) AuthenticateUser(providedKey string) (*models.User, erro
 		}
 	}
 
-	// Если нашли подходящего пользователя, загружаем его заново из базы по ID
-	if matchedUserID != -1 {
-		matchedUser, err := svc.DAO.GetByID(matchedUserID)
-		if err != nil {
-			return nil, fmt.Errorf("ошибка получения данных пользователя")
-		}
-		log.Printf("[AuthenticateUser] Успешная аутентификация пользователя: ID=%d, Name=%s",
-			matchedUser.ID, matchedUser.Name)
-		return matchedUser, nil
+	if matchedUserID == -1 {
+		log.Printf("[AuthenticateUser] Недействительный API ключ")
+		return nil, fmt.Errorf("недействительный API ключ")
 	}
 
-	log.Printf("[AuthenticateUser] Недействительный API ключ")
-	return nil, fmt.Errorf("недействительный API ключ")
+	matchedUser, err := svc.DAO.GetByID(matchedUserID)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка получения данных пользователя")
+	}
+
+	// Store in cache (keyed by SHA-256 of plaintext key; never store the key itself).
+	svc.authCache.Store(keyHash, &authCacheEntry{
+		userID:    matchedUserID,
+		expiresAt: time.Now().Add(authCacheTTL),
+	})
+
+	log.Printf("[AuthenticateUser] Успешная аутентификация пользователя: ID=%d, Name=%s",
+		matchedUser.ID, matchedUser.Name)
+	return matchedUser, nil
+}
+
+// sha256KeyHex returns the hex-encoded SHA-256 of key. Used as cache key so no
+// plaintext secret is held in memory beyond the duration of the call.
+func sha256KeyHex(key string) string {
+	h := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(h[:])
 }
 
 // GetUserByID возвращает пользователя по его ID.
@@ -172,7 +215,18 @@ func (svc *UserService) writeUserQRCode(userID int, plainKey string) (string, er
 		return "", err
 	}
 
-	return fmt.Sprintf("%s/static/qrcode/%d.png?v=%d", apiBase, userID, time.Now().Unix()), nil
+	// Public /static/qrcode is blocked; metadata URL points at the auth-gated API.
+	return fmt.Sprintf("%s/api/users/%d/qr-code-file?v=%d", apiBase, userID, time.Now().Unix()), nil
+}
+
+// invalidateAuthCacheForUser drops cached key→user mappings for userID (e.g. after key rotate).
+func (svc *UserService) invalidateAuthCacheForUser(userID int) {
+	svc.authCache.Range(func(k, v interface{}) bool {
+		if entry, ok := v.(*authCacheEntry); ok && entry.userID == userID {
+			svc.authCache.Delete(k)
+		}
+		return true
+	})
 }
 
 // RegenerateUserQR создаёт новый API-ключ и перезаписывает PNG QR-кода с текущим BASE_URL.
@@ -213,6 +267,8 @@ func (svc *UserService) RegenerateUserQR(userID int, plainKey ...string) (*model
 		log.Printf("[UserService RegenerateUserQR] Ошибка обновления пользователя: %v", err)
 		return nil, "", err
 	}
+
+	svc.invalidateAuthCacheForUser(userID)
 
 	log.Printf("[UserService RegenerateUserQR] QR перегенерирован: ID=%d, Name=%s", user.ID, user.Name)
 	return user, key, nil

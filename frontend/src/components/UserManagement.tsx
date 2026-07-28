@@ -65,6 +65,11 @@ function reportSummary(report: Record<string, unknown>): string[] {
     return lines;
 }
 
+function maskApiKey(key: string): string {
+    if (key.length <= 8) return '••••••••';
+    return `${key.slice(0, 4)}${'•'.repeat(Math.min(key.length - 8, 12))}${key.slice(-4)}`;
+}
+
 const UserManagement: React.FC = () => {
     const { apiKey, user: currentUser, refreshUser, adoptApiKey } = useAuth();
     const [users, setUsers] = useState<User[]>([]);
@@ -80,6 +85,7 @@ const UserManagement: React.FC = () => {
         apiKey: string;
         pushedToDevice: boolean;
     } | null>(null);
+    const [revealKey, setRevealKey] = useState(false);
 
     const [newUserName, setNewUserName] = useState('');
     const [newUserIsAdmin, setNewUserIsAdmin] = useState(false);
@@ -266,6 +272,7 @@ const UserManagement: React.FC = () => {
                 prev.map((u) => (u.id === user.id ? { ...u, qr_code: result.qr_code } : u))
             );
             setQrRefreshKey(Date.now());
+            setRevealKey(false);
             setRegenerateResult({
                 userId: user.id,
                 userName: user.name,
@@ -518,7 +525,7 @@ const UserManagement: React.FC = () => {
                             <h3>Новый ключ: {regenerateResult.userName}</h3>
                             <button
                                 className="close-button"
-                                onClick={() => setRegenerateResult(null)}
+                                onClick={() => { setRegenerateResult(null); setRevealKey(false); }}
                                 type="button"
                             >
                                 ×
@@ -526,7 +533,31 @@ const UserManagement: React.FC = () => {
                         </div>
                         <div className="qr-code-content">
                             <p>Сохраните ключ — он показывается один раз:</p>
-                            <code className="regenerate-api-key">{regenerateResult.apiKey}</code>
+                            <div className="regenerate-api-key-row">
+                                <code className="regenerate-api-key">
+                                    {revealKey
+                                        ? regenerateResult.apiKey
+                                        : maskApiKey(regenerateResult.apiKey)}
+                                </code>
+                                <div className="regenerate-api-key-actions">
+                                    <button
+                                        type="button"
+                                        className="device-action-button"
+                                        onClick={() => setRevealKey((v) => !v)}
+                                    >
+                                        {revealKey ? 'Скрыть' : 'Показать'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="device-action-button"
+                                        onClick={() => {
+                                            void navigator.clipboard.writeText(regenerateResult.apiKey);
+                                        }}
+                                    >
+                                        Копировать
+                                    </button>
+                                </div>
+                            </div>
                             <p className="qr-code-hint">
                                 {regenerateResult.pushedToDevice
                                     ? 'На устройство отправлен config_update. Если телефон онлайн, настройки обновятся автоматически; иначе отсканируйте QR.'
@@ -540,7 +571,7 @@ const UserManagement: React.FC = () => {
                             <button
                                 className="button"
                                 type="button"
-                                onClick={() => setRegenerateResult(null)}
+                                onClick={() => { setRegenerateResult(null); setRevealKey(false); }}
                             >
                                 Закрыть
                             </button>

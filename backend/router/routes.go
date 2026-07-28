@@ -1,7 +1,7 @@
 package router
 
 import (
-	"strings"
+	"net/http"
 
 	"locator/controllers"
 	"locator/middleware"
@@ -27,16 +27,17 @@ func InitRoutes(
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
-	router.Use(func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, "/static/qrcode/") {
-			c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
-			c.Header("Pragma", "no-cache")
-			c.Header("Expires", "0")
-		}
-		c.Next()
+	// Block direct access to QR PNG files — they embed plaintext API keys.
+	// Authenticated callers use /api/users/:id/qr-code-file instead.
+	router.GET("/static/qrcode/*filepath", func(c *gin.Context) {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "direct QR access forbidden"})
+	})
+	router.HEAD("/static/qrcode/*filepath", func(c *gin.Context) {
+		c.AbortWithStatus(http.StatusForbidden)
 	})
 
-	router.Static("/static", "./static")
+	// Serve only non-QR static assets publicly.
+	router.Static("/static/releases", "./static/releases")
 
 	// Базовый маршрут для API, без middleware
 	apiGroup := router.Group("/api")

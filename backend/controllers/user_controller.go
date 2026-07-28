@@ -248,21 +248,6 @@ func (uc *UserController) GetUserQRCodeFile(ctx *gin.Context) {
 	serveQRCodePNG(ctx, targetUser.ID)
 }
 
-// ServeStaticQRCode — GET /static/qrcode/:filename (без кэша, до gin.Static).
-func (uc *UserController) ServeStaticQRCode(ctx *gin.Context) {
-	name := ctx.Param("filename")
-	if len(name) < 5 || name[len(name)-4:] != ".png" {
-		ctx.Status(http.StatusNotFound)
-		return
-	}
-	id, err := strconv.Atoi(name[:len(name)-4])
-	if err != nil || id <= 0 {
-		ctx.Status(http.StatusNotFound)
-		return
-	}
-	serveQRCodePNG(ctx, id)
-}
-
 // PostRegenerateUserQR — POST /api/admin/users/:id/regenerate-qr
 // Создаёт новый API-ключ, перезаписывает PNG и опционально ставит config_update на устройство.
 func (uc *UserController) PostRegenerateUserQR(ctx *gin.Context) {

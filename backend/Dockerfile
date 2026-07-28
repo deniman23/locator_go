@@ -37,15 +37,20 @@ COPY migrations /migrations
 # APK монтируется volume в compose; в образ — только manifest
 COPY static/releases/manifest.json /app/static/releases/manifest.json
 
+# Non-secret defaults only; DB_PASSWORD MUST be supplied at runtime via compose env / secret.
+# No password default is intentional — container fails fast rather than starting with a baked secret.
 ENV \
     DB_HOST=db \
     DB_PORT=5432 \
     DB_NAME=locator_db \
     DB_USER=locator_user \
-    DB_PASSWORD=1Y8OEqzBLg \
     DB_SSLMODE=disable
 
 CMD ["bash", "-c", "\
+    if [ -z \"$DB_PASSWORD\" ]; then \
+      echo '❌ DB_PASSWORD is not set — refusing to start. Set it via compose environment or a secret.'; \
+      exit 1; \
+    fi; \
     until pg_isready -h $DB_HOST -U $DB_USER -d $DB_NAME; do \
       echo '⏳ waiting for postgres…'; sleep 2; \
     done; \

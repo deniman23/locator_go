@@ -1264,6 +1264,10 @@ main {
   margin-top: 0.5rem;
 }
 
+.regenerate-api-key-row {
+  margin: 0.5rem 0;
+}
+
 .regenerate-api-key {
   display: block;
   word-break: break-all;
@@ -1271,7 +1275,13 @@ main {
   padding: 0.75rem;
   border-radius: 4px;
   font-size: 0.85rem;
-  margin: 0.5rem 0;
+  letter-spacing: 0.03em;
+}
+
+.regenerate-api-key-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
 }
 
 .close-button {

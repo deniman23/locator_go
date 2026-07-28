@@ -251,7 +251,7 @@ func (dc *DeviceController) PostAdminWakeDevice(ctx *gin.Context) {
 	enableLoc := true
 	apiBase := os.Getenv("BASE_URL")
 	if apiBase == "" {
-		apiBase = "http://87.232.65.52:8080"
+		apiBase = "http://localhost:8080"
 	}
 	payload, err := service.BuildConfigUpdatePayload(userID, service.DeviceConfigUpdateInput{
 		WakeDevice:     &wake,
@@ -299,7 +299,7 @@ func (dc *DeviceController) PostAdminEnableLocation(ctx *gin.Context) {
 	wake := true
 	apiBase := os.Getenv("BASE_URL")
 	if apiBase == "" {
-		apiBase = "http://87.232.65.52:8080"
+		apiBase = "http://localhost:8080"
 	}
 	payload, err := service.BuildConfigUpdatePayload(userID, service.DeviceConfigUpdateInput{
 		EnableLocation: &enableLoc,
