@@ -20,10 +20,15 @@ func BasicAuthMiddleware(userService *service.UserService) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Отсутствует API ключ"})
 			return
 		}
+		if !AllowAuth(c.ClientIP()) {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Слишком много неудачных попыток"})
+			return
+		}
 
 		// Пытаемся аутентифицировать пользователя на основе предоставленного API ключа
 		user, err := userService.AuthenticateUser(apiKey)
 		if err != nil {
+			RecordAuthFailure(c.ClientIP())
 			log.Printf("[Middleware] Ошибка аутентификации: %v", err)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Неверный API ключ"})
 			return
@@ -64,10 +69,15 @@ func APIKeyAuthMiddleware(userService *service.UserService) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Отсутствует API ключ"})
 			return
 		}
+		if !AllowAuth(c.ClientIP()) {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Слишком много неудачных попыток"})
+			return
+		}
 
 		// Пытаемся аутентифицировать пользователя на основе предоставленного API ключа
 		user, err := userService.AuthenticateUser(apiKey)
 		if err != nil {
+			RecordAuthFailure(c.ClientIP())
 			log.Printf("[Middleware] Ошибка аутентификации: %v", err)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Неверный API ключ"})
 			return

@@ -4,6 +4,8 @@ backend/logs/
 backend/static
 backups/*.sql.gz
 osrm-data/
+tiles-data/
+tiles-setup.log
 /.cursor
 
 # deps & OS
@@ -22,3 +24,29 @@ e2e/playwright/.cache/
 # macOS AppleDouble / codegraph runtime
 ._*
 .codegraph/
+
+# AI-agent memory and instructions. Kept on this machine, not in the repo.
+/STATUS.md
+/TASKS.md
+/CLAUDE.md
+/AGENTS.md
+/.github/copilot-instructions.md
+/docs/AI_MEMORY.md
+/docs/loop/
+/docs/plans/AI_ACTION_LOG.md
+/docs/plans/ACTIVE.md
+/docs/stats/PROJECT_STATS.md
+/docs/knowledge-base/
+/docs/kb/learnings.md
+/docs/kb/api-contracts.md
+/docs/kb/architecture.md
+/docs/kb/data-model.md
+/docs/kb/glossary.md
+/docs/kb/runbook.md
+/docs/kb/security.md
+/docs/kb/ui-flows.md
+/docs/kb/decisions/
+
+# Specialist agent packs are seeded locally.
+/.claude/
+/.codex/

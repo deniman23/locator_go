@@ -27,6 +27,7 @@ import {
     minskDayBounds,
     STAY_PERIOD_LOOKBACK_HOURS,
 } from '../utils/locationTrack';
+import { MAP_TILE_ATTRIBUTION, MAP_TILE_MAX_ZOOM, MAP_TILE_URL } from '../utils/mapTiles';
 
 type RoutePoint = Location & { isLast?: boolean };
 
@@ -61,27 +62,31 @@ const MapUpdater = ({
     checkpoints,
     locations,
     extraLatLng,
-    shouldFitBounds,
+    fitNonce,
 }: {
     checkpoints: Checkpoint[];
     locations: Location[];
     extraLatLng: [number, number][];
-    shouldFitBounds: boolean;
+    fitNonce: number;
 }) => {
     const map = useMap();
+    const geometryRef = useRef({ checkpoints, locations, extraLatLng });
+    geometryRef.current = { checkpoints, locations, extraLatLng };
+
     useEffect(() => {
-        if (!shouldFitBounds) return;
+        if (fitNonce === 0) return;
+        const { checkpoints: cps, locations: locs, extraLatLng: extra } = geometryRef.current;
         const pts: [number, number][] = [
-            ...checkpoints.map(p => [p.latitude, p.longitude] as [number, number]),
-            ...locations.map(p => [p.latitude, p.longitude] as [number, number]),
-            ...extraLatLng,
+            ...cps.map(p => [p.latitude, p.longitude] as [number, number]),
+            ...locs.map(p => [p.latitude, p.longitude] as [number, number]),
+            ...extra,
         ];
         if (!pts.length) return;
         const bounds = L.latLngBounds(pts);
         if (bounds.isValid()) {
             map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
         }
-    }, [map, checkpoints, locations, extraLatLng, shouldFitBounds]);
+    }, [map, fitNonce]);
     return null;
 };
 
@@ -91,6 +96,7 @@ const MapComponent: React.FC = () => {
     const routeParamsApplied = useRef(false);
     /** Survives until getAll applies so deep-link uid is not lost if selection state is still []. */
     const pendingDeepLinkUserIdRef = useRef<number | null>(null);
+    const lastDeepLinkKeyRef = useRef<string | null>(null);
     const day0 = useMemo(() => minskDayBounds(0), []);
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [userLocations, setUserLocations] = useState<Location[]>([]);
@@ -98,7 +104,8 @@ const MapComponent: React.FC = () => {
     const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
     const [userSearch, setUserSearch] = useState('');
     const [loading, setLoading] = useState(true);
-    const [shouldFitBounds, setShouldFitBounds] = useState(false);
+    const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
+    const [fitNonce, setFitNonce] = useState(0);
     const [error, setError] = useState<string | null>(null);
     /** По умолчанию — календарный сегодняшний день (Europe/Minsk) */
     const [fromTime, setFromTime] = useState(day0.from);
@@ -109,8 +116,10 @@ const MapComponent: React.FC = () => {
     const [roadSegments, setRoadSegments] = useState<[number, number][][]>([]);
     const [roadMatchNote, setRoadMatchNote] = useState<string | null>(null);
     const [routeLoading, setRouteLoading] = useState(false);
-    /** Увеличивается по кнопке «Получить маршрут», чтобы заново запросить линию OSRM */
+    /** Увеличивается после «Показать трек», чтобы заново запросить линию OSRM */
     const [matchedRouteNonce, setMatchedRouteNonce] = useState(0);
+    const [trackRequested, setTrackRequested] = useState(false);
+    const [usersLoadError, setUsersLoadError] = useState<string | null>(null);
 
     const filtersRef = useRef({ fromTime: day0.from, toTime: day0.to });
     const apiKeyRef = useRef<string | null>(apiKey);
@@ -122,6 +131,10 @@ const MapComponent: React.FC = () => {
     }, [fromTime, toTime]);
 
     useEffect(() => {
+        setTrackRequested(false);
+    }, [fromTime, toTime]);
+
+    useEffect(() => {
         apiKeyRef.current = apiKey;
     }, [apiKey]);
 
@@ -130,6 +143,7 @@ const MapComponent: React.FC = () => {
         userApi
             .getAll(apiKey)
             .then(users => {
+                setUsersLoadError(null);
                 setAllUsers(users);
                 // Do not overwrite Visits→Map deep-link selection when getAll finishes later.
                 setSelectedUserIds(prev => {
@@ -145,7 +159,10 @@ const MapComponent: React.FC = () => {
                     return users.map(u => u.id);
                 });
             })
-            .catch(err => console.error('Не удалось загрузить пользователей:', err));
+            .catch(err => {
+                console.error('Не удалось загрузить пользователей:', err);
+                setUsersLoadError('Не удалось загрузить список сотрудников');
+            });
     }, [apiKey]);
 
     const fetchData = useCallback(async () => {
@@ -203,7 +220,7 @@ const MapComponent: React.FC = () => {
                 !localStorage.getItem('mapLoaded') &&
                 (cpRes.data.length || (locRes.data && locRes.data.length))
             ) {
-                setShouldFitBounds(true);
+                setFitNonce(n => n + 1);
                 localStorage.setItem('mapLoaded', 'true');
             }
         } catch (e: unknown) {
@@ -234,25 +251,35 @@ const MapComponent: React.FC = () => {
     }, [fetchData]);
 
     useEffect(() => {
-        if (routeParamsApplied.current) return;
         const userIdStr = searchParams.get('user_id');
         const from = searchParams.get('from');
         const to = searchParams.get('to');
-        if (!userIdStr || !from || !to) return;
+        if (!userIdStr || !from || !to) {
+            lastDeepLinkKeyRef.current = null;
+            return;
+        }
+
+        const linkKey = `${userIdStr}|${from}|${to}`;
+        if (lastDeepLinkKeyRef.current === linkKey) return;
 
         const uid = parseInt(userIdStr, 10);
         if (Number.isNaN(uid)) return;
 
+        lastDeepLinkKeyRef.current = linkKey;
         routeParamsApplied.current = true;
         pendingDeepLinkUserIdRef.current = uid;
         setSelectedUserIds([uid]);
         setFromTime(from);
         setToTime(to);
         filtersRef.current = { fromTime: from, toTime: to };
-        setShouldFitBounds(true);
         localStorage.removeItem('mapPosition');
         setSearchParams({}, { replace: true });
-        setTimeout(() => void fetchDataRef.current?.(), 0);
+
+        void (async () => {
+            await fetchDataRef.current?.();
+            setTrackRequested(true);
+            setFitNonce(n => n + 1);
+        })();
     }, [searchParams, setSearchParams]);
 
     useEffect(() => {
@@ -268,6 +295,7 @@ const MapComponent: React.FC = () => {
         setRoadMatchNote(null);
 
         if (
+            !trackRequested ||
             !useRoadMatch ||
             selectedUserIds.length !== 1 ||
             !fromTime ||
@@ -321,7 +349,7 @@ const MapComponent: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [useRoadMatch, selectedUserIds, fromTime, toTime, apiKey, matchedRouteNonce]);
+    }, [trackRequested, useRoadMatch, selectedUserIds, fromTime, toTime, apiKey, matchedRouteNonce]);
 
     const getSavedPosition = () => {
         const saved = localStorage.getItem('mapPosition');
@@ -329,10 +357,10 @@ const MapComponent: React.FC = () => {
             try {
                 return JSON.parse(saved);
             } catch {
-                return { lat: 55.75, lng: 37.61, zoom: 10 };
+                return { lat: 53.9, lng: 27.57, zoom: 11 };
             }
         }
-        return { lat: 55.75, lng: 37.61, zoom: 10 };
+        return { lat: 53.9, lng: 27.57, zoom: 11 };
     };
     const initialPosition = getSavedPosition();
 
@@ -401,16 +429,7 @@ const MapComponent: React.FC = () => {
         return allUsers.filter(u => u.name.toLowerCase().includes(q));
     }, [allUsers, userSearch]);
 
-    const applyPeriod = () => {
-        setShouldFitBounds(true);
-        void fetchData();
-        if (useRoadMatch && selectedUserIds.length === 1) {
-            setMatchedRouteNonce(n => n + 1);
-        }
-    };
-
-    /** Загрузка точек за период, показ трека и подгонка карты; при включённой привязке к дорогам — повторный запрос OSRM */
-    const handleGetRoute = async () => {
+    const handleShowTrack = async () => {
         if (!fromTime || !toTime) {
             setError('Укажите период (начало и конец)');
             return;
@@ -423,7 +442,8 @@ const MapComponent: React.FC = () => {
         setError(null);
         try {
             await fetchData();
-            setShouldFitBounds(true);
+            setTrackRequested(true);
+            setFitNonce(n => n + 1);
             localStorage.removeItem('mapPosition');
             if (useRoadMatch && selectedUserIds.length === 1) {
                 setMatchedRouteNonce(n => n + 1);
@@ -433,13 +453,25 @@ const MapComponent: React.FC = () => {
         }
     };
 
+    const handleFitMap = () => {
+        setFitNonce(n => n + 1);
+        localStorage.removeItem('mapPosition');
+    };
+
     if (loading && !checkpoints.length && !userLocations.length) {
         return <div className="loading-message">Загрузка карты...</div>;
     }
 
     return (
         <div className="map-dashboard">
-            <aside className="map-sidebar open">
+            <button
+                type="button"
+                className="map-filters-toggle"
+                onClick={() => setSidebarOpen((open) => !open)}
+            >
+                {sidebarOpen ? 'Скрыть фильтры' : 'Фильтры'}
+            </button>
+            <aside className={sidebarOpen ? 'map-sidebar open' : 'map-sidebar'}>
                 <div className="sidebar-content">
                     <div className="filter-section map-period-section">
                         <div className="section-header">
@@ -472,10 +504,6 @@ const MapComponent: React.FC = () => {
                             <p className="map-period-summary">{formatPeriodRange(fromTime, toTime)}</p>
                         )}
 
-                        <button type="button" className="btn-primary-apply" onClick={applyPeriod}>
-                            Применить интервал
-                        </button>
-
                         {fromTime && toTime && compareMinskDateTimes(fromTime, toTime) >= 0 && (
                             <p className="map-inline-error" role="alert">
                                 Укажите «с» раньше, чем «по».
@@ -484,11 +512,19 @@ const MapComponent: React.FC = () => {
 
                         <button
                             type="button"
-                            className="btn-get-route"
+                            className="btn-primary-apply"
                             disabled={routeLoading}
-                            onClick={() => void handleGetRoute()}
+                            onClick={() => void handleShowTrack()}
                         >
-                            {routeLoading ? 'Загрузка…' : 'Обновить маршрут'}
+                            {routeLoading ? 'Загрузка…' : 'Показать трек'}
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-secondary"
+                            style={{ width: '100%', marginTop: 8 }}
+                            onClick={handleFitMap}
+                        >
+                            Подогнать карту
                         </button>
                     </div>
 
@@ -514,6 +550,15 @@ const MapComponent: React.FC = () => {
                                 </button>
                             </div>
                         </div>
+                        {usersLoadError && (
+                            <p className="map-inline-error" role="alert">{usersLoadError}</p>
+                        )}
+                        {!usersLoadError && allUsers.length === 0 && !loading && (
+                            <div className="empty-state">
+                                <p className="empty-state-title">Нет сотрудников</p>
+                                <p className="empty-state-hint">Создайте пользователя в разделе «Пользователи».</p>
+                            </div>
+                        )}
                         <input
                             type="search"
                             className="map-user-search"
@@ -582,6 +627,15 @@ const MapComponent: React.FC = () => {
                     </div>
                 )}
 
+                {trackRequested && !routeLoading && routePoints.length === 0 && (
+                    <div className="map-empty-overlay" role="status">
+                        <p className="empty-state-title">Нет GPS-точек за период</p>
+                        <p className="empty-state-hint">
+                            Расширьте интервал, проверьте сотрудника или устройство.
+                        </p>
+                    </div>
+                )}
+
                 <MapContainer
                     center={[initialPosition.lat, initialPosition.lng]}
                     zoom={initialPosition.zoom}
@@ -593,12 +647,13 @@ const MapComponent: React.FC = () => {
                         checkpoints={checkpoints}
                         locations={routePoints}
                         extraLatLng={extraLatLngForBounds}
-                        shouldFitBounds={shouldFitBounds}
+                        fitNonce={fitNonce}
                     />
 
                     <TileLayer
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        attribution="&copy; OpenStreetMap"
+                        url={MAP_TILE_URL}
+                        attribution={MAP_TILE_ATTRIBUTION}
+                        maxZoom={MAP_TILE_MAX_ZOOM}
                     />
 
                     {checkpoints.map(cp => (
@@ -744,7 +799,7 @@ const MapComponent: React.FC = () => {
                         onClick={() => {
                             localStorage.removeItem('mapPosition');
                             localStorage.removeItem('mapLoaded');
-                            setShouldFitBounds(true);
+                            setFitNonce(n => n + 1);
                         }}
                         title="Сбросить положение карты"
                     >

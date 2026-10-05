@@ -263,7 +263,7 @@ func (dc *DeviceController) PostAdminWakeDevice(ctx *gin.Context) {
 		return
 	}
 
-	configCmd, err := dc.CommandService.EnqueueCommand(userID, models.DeviceCommandTypeConfigUpdate, payload)
+	configCmd, err := dc.CommandService.EnqueueCommandAs(currentUser.ID, userID, models.DeviceCommandTypeConfigUpdate, payload)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось создать config_update"})
 		return
@@ -311,7 +311,7 @@ func (dc *DeviceController) PostAdminEnableLocation(ctx *gin.Context) {
 		return
 	}
 
-	configCmd, err := dc.CommandService.EnqueueCommand(userID, models.DeviceCommandTypeConfigUpdate, payload)
+	configCmd, err := dc.CommandService.EnqueueCommandAs(currentUser.ID, userID, models.DeviceCommandTypeConfigUpdate, payload)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось создать config_update"})
 		return
@@ -350,8 +350,12 @@ func (dc *DeviceController) PostAdminUserCommand(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Укажите type"})
 		return
 	}
+	if body.Type == models.DeviceCommandTypeConfigUpdate || body.Type == models.DeviceCommandTypeAppUpdate {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Этот тип команды принимается только через узкий контракт"})
+		return
+	}
 
-	cmd, err := dc.CommandService.EnqueueCommand(userID, body.Type, body.Payload)
+	cmd, err := dc.CommandService.EnqueueCommandAs(currentUser.ID, userID, body.Type, body.Payload)
 	if err != nil {
 		if errors.Is(err, service.ErrDeviceCommandInvalidType) {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неизвестный type команды"})
@@ -408,7 +412,7 @@ func (dc *DeviceController) PostAdminUserDeviceConfig(ctx *gin.Context) {
 		return
 	}
 
-	cmd, err := dc.CommandService.EnqueueCommand(userID, models.DeviceCommandTypeConfigUpdate, payload)
+	cmd, err := dc.CommandService.EnqueueCommandAs(currentUser.ID, userID, models.DeviceCommandTypeConfigUpdate, payload)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось создать команду"})
 		return
@@ -452,7 +456,7 @@ func (dc *DeviceController) PostPublishAppUpdate(ctx *gin.Context) {
 		return
 	}
 
-	cmd, err := dc.CommandService.EnqueueCommand(userID, models.DeviceCommandTypeAppUpdate, payload)
+	cmd, err := dc.CommandService.EnqueueCommandAs(currentUser.ID, userID, models.DeviceCommandTypeAppUpdate, payload)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось создать команду"})
 		return

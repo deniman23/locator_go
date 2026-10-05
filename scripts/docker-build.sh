@@ -12,7 +12,9 @@ cd "$ROOT"
 export DOCKER_BUILDKIT=1
 export COMPOSE_DOCKER_CLI_BUILD=1
 
-BUILDX_KEEP_STORAGE="${BUILDX_KEEP_STORAGE:-3gb}"
+# 20 ГБ диск: 3gb cache не освобождался (крон забирал 0 байт при 99%).
+BUILDX_KEEP_STORAGE="${BUILDX_KEEP_STORAGE:-512mb}"
+MIN_FREE_KB="${MIN_FREE_KB:-$((1500 * 1024))}"
 
 compose() {
   if docker compose version >/dev/null 2>&1; then
@@ -31,7 +33,26 @@ ensure_buildkit() {
   fi
 }
 
+disk_avail_kb() {
+  df -P / | awk 'NR==2 { print $4 }'
+}
+
+ensure_disk_for_build() {
+  local avail
+  avail="$(disk_avail_kb)"
+  if [[ "$avail" -lt "$MIN_FREE_KB" ]]; then
+    echo "[docker-build] свободно меньше 1.5 ГБ ($(df -h / | awk 'NR==2 { print $4" free, "$5 }')). Сначала cleanup, контейнеры не останавливаю."
+    "$ROOT/scripts/cleanup-disk.sh" || true
+    avail="$(disk_avail_kb)"
+  fi
+  if [[ "$avail" -lt "$MIN_FREE_KB" ]]; then
+    echo "[docker-build] отказ: после очистки всё ещё меньше 1.5 ГБ. Сборку не начинаю, чтобы не забить диск." >&2
+    exit 1
+  fi
+}
+
 build_images() {
+  ensure_disk_for_build
   ensure_buildkit
   echo "[docker-build] BuildKit cache mounts; prune limit: $BUILDX_KEEP_STORAGE"
   compose build --parallel "$@"

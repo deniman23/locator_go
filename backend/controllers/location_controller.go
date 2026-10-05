@@ -63,12 +63,12 @@ func newLocationSnapshot(loc *models.Location) locationSnapshot {
 
 // LocationController отвечает за обработку запросов, связанных с локациями.
 type LocationController struct {
-	Service         *service.LocationService
-	RequestService  *service.LocationRequestService
-	CommandService  *service.DeviceCommandService
-	Publisher       *messaging.Publisher
-	RoutingBaseURL  string // OSRM/совместимый инстанс, без завершающего /; пусто — эндпоинт match недоступен
-	HTTPRouting     *http.Client
+	Service        *service.LocationService
+	RequestService *service.LocationRequestService
+	CommandService *service.DeviceCommandService
+	Publisher      *messaging.Publisher
+	RoutingBaseURL string // OSRM/совместимый инстанс, без завершающего /; пусто — эндпоинт match недоступен
+	HTTPRouting    *http.Client
 }
 
 // NewLocationController создаёт новый экземпляр контроллера для работы с локациями.
@@ -262,6 +262,11 @@ func (lc *LocationController) GetLocations(ctx *gin.Context) {
 
 	var locations []models.Location
 	var err error
+
+	if from == "" || to == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Укажите from и to"})
+		return
+	}
 
 	if from != "" && to != "" {
 		if useRaw {

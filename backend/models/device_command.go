@@ -25,6 +25,7 @@ const (
 type DeviceCommand struct {
 	ID          string         `gorm:"primaryKey;size:36" json:"id"`
 	UserID      int            `gorm:"not null;index:idx_device_cmd_user_status" json:"user_id"`
+	CreatedBy   *int           `json:"created_by,omitempty"`
 	Type        string         `gorm:"not null;size:50" json:"type"`
 	Payload     datatypes.JSON `gorm:"type:jsonb" json:"payload,omitempty"`
 	Status      string         `gorm:"not null;size:20;index:idx_device_cmd_user_status" json:"status"`
@@ -32,5 +33,6 @@ type DeviceCommand struct {
 	AckMessage  string         `gorm:"type:text" json:"ack_message,omitempty"`
 	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	DeliveredAt *time.Time     `json:"delivered_at,omitempty"`
+	LeaseUntil  *time.Time     `json:"lease_until,omitempty"`
 	AckedAt     *time.Time     `json:"acked_at,omitempty"`
 }

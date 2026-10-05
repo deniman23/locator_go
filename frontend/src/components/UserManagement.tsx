@@ -14,6 +14,7 @@ import {
 } from '../utils/userDeviceStatus';
 import QRCodeDisplay from './QRCodeDisplay';
 import DeviceControlPanel from './DeviceControlPanel';
+import Modal from './Modal';
 
 const STATUS_POLL_MS = 45_000;
 
@@ -65,11 +66,6 @@ function reportSummary(report: Record<string, unknown>): string[] {
     return lines;
 }
 
-function maskApiKey(key: string): string {
-    if (key.length <= 8) return '••••••••';
-    return `${key.slice(0, 4)}${'•'.repeat(Math.min(key.length - 8, 12))}${key.slice(-4)}`;
-}
-
 const UserManagement: React.FC = () => {
     const { apiKey, user: currentUser, refreshUser, adoptApiKey } = useAuth();
     const [users, setUsers] = useState<User[]>([]);
@@ -86,6 +82,8 @@ const UserManagement: React.FC = () => {
         pushedToDevice: boolean;
     } | null>(null);
     const [revealKey, setRevealKey] = useState(false);
+    const [actionsMenuUserId, setActionsMenuUserId] = useState<number | null>(null);
+    const [keySavedAck, setKeySavedAck] = useState(false);
 
     const [newUserName, setNewUserName] = useState('');
     const [newUserIsAdmin, setNewUserIsAdmin] = useState(false);
@@ -251,6 +249,22 @@ const UserManagement: React.FC = () => {
     const handleCloseQRCode = () => {
         setShowQRCode(false);
         setSelectedUser(null);
+    };
+
+    const handleSetDisabled = async (user: User, disabled: boolean) => {
+        if (!apiKey) return;
+        const confirmed = window.confirm(
+            disabled
+                ? `Отключить «${user.name}»? История локаций и визитов останется, ключ перестанет работать.`
+                : `Снова включить «${user.name}»?`
+        );
+        if (!confirmed) return;
+        try {
+            await userApi.setDisabled(user.id, disabled, apiKey);
+            setUsers(await userApi.getAll(apiKey));
+        } catch (e: unknown) {
+            window.alert(e instanceof Error ? e.message : 'Не удалось изменить статус');
+        }
     };
 
     const handleRegenerateQR = async (user: User) => {
@@ -519,65 +533,94 @@ const UserManagement: React.FC = () => {
             )}
 
             {regenerateResult && (
-                <div className="qr-code-modal">
-                    <div className="qr-code-container">
-                        <div className="qr-code-header">
-                            <h3>Новый ключ: {regenerateResult.userName}</h3>
+                <Modal
+                    title={`Новый ключ: ${regenerateResult.userName}`}
+                    onClose={() => {
+                        if (!keySavedAck) return;
+                        setRegenerateResult(null);
+                        setRevealKey(false);
+                        setKeySavedAck(false);
+                    }}
+                    disableBackdropClose
+                    disableEscapeClose={!keySavedAck}
+                    hideCloseButton={!keySavedAck}
+                    contentClassName="qr-code-container"
+                    footer={
+                        <>
                             <button
-                                className="close-button"
-                                onClick={() => { setRegenerateResult(null); setRevealKey(false); }}
+                                className="btn-secondary button"
                                 type="button"
+                                onClick={() => {
+                                    handleShowRegeneratedQR();
+                                    setRegenerateResult(null);
+                                    setRevealKey(false);
+                                    setKeySavedAck(false);
+                                }}
                             >
-                                ×
-                            </button>
-                        </div>
-                        <div className="qr-code-content">
-                            <p>Сохраните ключ — он показывается один раз:</p>
-                            <div className="regenerate-api-key-row">
-                                <code className="regenerate-api-key">
-                                    {revealKey
-                                        ? regenerateResult.apiKey
-                                        : maskApiKey(regenerateResult.apiKey)}
-                                </code>
-                                <div className="regenerate-api-key-actions">
-                                    <button
-                                        type="button"
-                                        className="device-action-button"
-                                        onClick={() => setRevealKey((v) => !v)}
-                                    >
-                                        {revealKey ? 'Скрыть' : 'Показать'}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="device-action-button"
-                                        onClick={() => {
-                                            void navigator.clipboard.writeText(regenerateResult.apiKey);
-                                        }}
-                                    >
-                                        Копировать
-                                    </button>
-                                </div>
-                            </div>
-                            <p className="qr-code-hint">
-                                {regenerateResult.pushedToDevice
-                                    ? 'На устройство отправлен config_update. Если телефон онлайн, настройки обновятся автоматически; иначе отсканируйте QR.'
-                                    : 'Отсканируйте новый QR-код в приложении на телефоне.'}
-                            </p>
-                        </div>
-                        <div className="qr-code-footer">
-                            <button className="button" type="button" onClick={handleShowRegeneratedQR}>
                                 Показать QR
                             </button>
                             <button
-                                className="button"
+                                className="btn-primary button"
                                 type="button"
-                                onClick={() => { setRegenerateResult(null); setRevealKey(false); }}
+                                disabled={!keySavedAck}
+                                onClick={() => {
+                                    setRegenerateResult(null);
+                                    setRevealKey(false);
+                                    setKeySavedAck(false);
+                                }}
                             >
                                 Закрыть
                             </button>
+                        </>
+                    }
+                >
+                    <p className="qr-code-hint">
+                        Старый ключ перестал работать. Сохраните новый — он показывается один раз.
+                    </p>
+                    <div className="regenerate-api-key-row">
+                        <input
+                            className="regenerate-api-key"
+                            readOnly
+                            type={revealKey ? 'text' : 'password'}
+                            value={regenerateResult.apiKey}
+                            aria-label="Новый API-ключ"
+                        />
+                        <div className="regenerate-api-key-actions">
+                            <button
+                                type="button"
+                                className="device-action-button"
+                                onClick={() => setRevealKey((v) => !v)}
+                            >
+                                {revealKey ? 'Скрыть' : 'Показать'}
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-primary device-action-button"
+                                onClick={() => {
+                                    void navigator.clipboard.writeText(regenerateResult.apiKey).then(
+                                        () => window.alert('Ключ скопирован'),
+                                        () => window.alert('Не удалось скопировать ключ')
+                                    );
+                                }}
+                            >
+                                Скопировать ключ
+                            </button>
                         </div>
                     </div>
-                </div>
+                    <label className="filter-checkbox-label" style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                        <input
+                            type="checkbox"
+                            checked={keySavedAck}
+                            onChange={(e) => setKeySavedAck(e.target.checked)}
+                        />
+                        Ключ сохранён
+                    </label>
+                    <p className="qr-code-hint">
+                        {regenerateResult.pushedToDevice
+                            ? 'На устройство отправлен config_update. Если телефон онлайн, настройки обновятся автоматически; иначе отсканируйте QR.'
+                            : 'Отсканируйте новый QR-код в приложении на телефоне.'}
+                    </p>
+                </Modal>
             )}
 
             <div className="create-user-form">
@@ -717,7 +760,13 @@ const UserManagement: React.FC = () => {
                                     <td>
                                         {status ? (
                                             <span
-                                                className={`device-badge device-badge--${status.gps}`}
+                                                className={`device-badge device-badge--${status.gps} status-chip status-chip--${
+                                                    status.gps === 'online'
+                                                        ? 'ok'
+                                                        : status.gps === 'stale'
+                                                          ? 'warn'
+                                                          : 'error'
+                                                }`}
                                             >
                                                     {gpsLabel(status.gps)}
                                                 </span>
@@ -739,6 +788,8 @@ const UserManagement: React.FC = () => {
                                                     <span
                                                         className={`device-badge device-badge--${
                                                             status.healthy ? 'healthy' : 'unhealthy'
+                                                        } status-chip status-chip--${
+                                                            status.healthy ? 'ok' : 'error'
                                                         }`}
                                                     >
                                                         {status.healthy
@@ -802,46 +853,7 @@ const UserManagement: React.FC = () => {
                                     <td className="user-actions-cell">
                                         <div className="user-actions-inner">
                                             <button
-                                                className="qr-code-button-small"
-                                                onClick={() => handleShowUserQRCode(user)}
-                                                disabled={busy}
-                                            >
-                                                QR-код
-                                            </button>
-                                            <button
-                                                className="device-action-button"
-                                                onClick={() => handleRegenerateQR(user)}
-                                                disabled={busy}
-                                                title="Новый API-ключ и QR (старый перестанет работать)"
-                                            >
-                                                Перегенерировать QR
-                                            </button>
-                                            <button
-                                                className="device-action-button device-action-button--location"
-                                                onClick={() => handleEnableLocation(user.id)}
-                                                disabled={busy}
-                                                title="Включить GPS и разрешения на телефоне (Device Owner)"
-                                            >
-                                                Вкл. GPS
-                                            </button>
-                                            <button
-                                                className="device-action-button"
-                                                onClick={() => handleWakeDevice(user.id)}
-                                                disabled={busy}
-                                                title="Пробудить трекинг на телефоне (Device Owner)"
-                                            >
-                                                Пробудить
-                                            </button>
-                                            <button
-                                                className="device-action-button"
-                                                onClick={() => handleRequestLocation(user.id)}
-                                                disabled={busy}
-                                                title="Запросить координаты с телефона"
-                                            >
-                                                GPS
-                                            </button>
-                                            <button
-                                                className="device-action-button"
+                                                className="btn-primary device-action-button"
                                                 onClick={() => setDevicePanelUser(user)}
                                                 disabled={busy}
                                                 title="Данные телефона и удалённые настройки"
@@ -849,21 +861,109 @@ const UserManagement: React.FC = () => {
                                                 Устройство
                                             </button>
                                             <button
-                                                className="device-action-button"
-                                                onClick={() => handleHealthCheck(user.id)}
+                                                className="qr-code-button-small"
+                                                onClick={() => handleShowUserQRCode(user)}
                                                 disabled={busy}
-                                                title="Запросить диагностику приложения"
                                             >
-                                                Диагностика
+                                                QR
                                             </button>
-                                            <button
-                                                className="device-action-button device-action-button--update"
-                                                onClick={() => handlePublishUpdate(user.id)}
-                                                disabled={busy}
-                                                title="Отправить APK-обновление на устройство"
-                                            >
-                                                Обновление
-                                            </button>
+                                            <div className="user-actions-overflow">
+                                                <button
+                                                    type="button"
+                                                    className="device-action-button"
+                                                    disabled={busy}
+                                                    aria-expanded={actionsMenuUserId === user.id}
+                                                    onClick={() =>
+                                                        setActionsMenuUserId((id) =>
+                                                            id === user.id ? null : user.id
+                                                        )
+                                                    }
+                                                >
+                                                    Ещё…
+                                                </button>
+                                                {actionsMenuUserId === user.id && (
+                                                    <div className="user-actions-menu" role="menu">
+                                                        <button
+                                                            type="button"
+                                                            className="device-action-button"
+                                                            onClick={() => {
+                                                                setActionsMenuUserId(null);
+                                                                void handleRegenerateQR(user);
+                                                            }}
+                                                            disabled={busy}
+                                                            title="Новый API-ключ и QR (старый перестанет работать)"
+                                                        >
+                                                            Перегенерировать QR
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="device-action-button"
+                                                            onClick={() => {
+                                                                setActionsMenuUserId(null);
+                                                                void handleSetDisabled(user, !user.disabled_at);
+                                                            }}
+                                                            disabled={busy}
+                                                        >
+                                                            {user.disabled_at ? 'Включить' : 'Отключить'}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="device-action-button device-action-button--location"
+                                                            onClick={() => {
+                                                                setActionsMenuUserId(null);
+                                                                void handleEnableLocation(user.id);
+                                                            }}
+                                                            disabled={busy}
+                                                        >
+                                                            Вкл. GPS
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="device-action-button"
+                                                            onClick={() => {
+                                                                setActionsMenuUserId(null);
+                                                                void handleWakeDevice(user.id);
+                                                            }}
+                                                            disabled={busy}
+                                                        >
+                                                            Пробудить
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="device-action-button"
+                                                            onClick={() => {
+                                                                setActionsMenuUserId(null);
+                                                                void handleRequestLocation(user.id);
+                                                            }}
+                                                            disabled={busy}
+                                                        >
+                                                            Запросить GPS
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="device-action-button"
+                                                            onClick={() => {
+                                                                setActionsMenuUserId(null);
+                                                                void handleHealthCheck(user.id);
+                                                            }}
+                                                            disabled={busy}
+                                                        >
+                                                            Диагностика
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="device-action-button device-action-button--update"
+                                                            onClick={() => {
+                                                                setActionsMenuUserId(null);
+                                                                void handlePublishUpdate(user.id);
+                                                            }}
+                                                            disabled={busy}
+                                                        >
+                                                            Обновление
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     </td>
                                 </tr>

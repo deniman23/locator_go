@@ -67,10 +67,15 @@ func (svc *UserService) CreateUser(name string, isAdmin bool, forceAPIKey ...str
 		return nil, "", err
 	}
 
+	if len(plainKey) < 6 || plainKey == "change_me" {
+		return nil, "", fmt.Errorf("API ключ слишком короткий")
+	}
+
 	user := &models.User{
-		Name:    name,
-		ApiKey:  string(hashedKey),
-		IsAdmin: isAdmin,
+		Name:      name,
+		ApiKey:    string(hashedKey),
+		KeyLookup: sha256KeyHex(plainKey),
+		IsAdmin:   isAdmin,
 	}
 
 	if err := svc.DAO.Create(user); err != nil {
@@ -96,67 +101,96 @@ func (svc *UserService) CreateUser(name string, isAdmin bool, forceAPIKey ...str
 	return user, plainKey, nil
 }
 
-// AuthenticateUser проверяет, соответствует ли предоставленный API‑ключ хешированному значению в базе.
-// A process-local cache (SHA-256 key hash → user ID, 10 min TTL) avoids bcrypt×N on every poll.
-// On cache hit the user is reloaded from the DB by ID to ensure the record still exists.
+// AuthenticateUser проверяет API-ключ.
+// Успешный ключ ищется по SHA-256 (один SELECT и один bcrypt).
+// Полный перебор остаётся только для строк без key_lookup, пока пользователь не войдёт один раз.
 func (svc *UserService) AuthenticateUser(providedKey string) (*models.User, error) {
 	if providedKey == "" {
 		return nil, fmt.Errorf("API ключ не может быть пустым")
 	}
 
 	keyHash := sha256KeyHex(providedKey)
+	if svc.negativeCached(keyHash) {
+		return nil, fmt.Errorf("недействительный API ключ")
+	}
 
-	// Cache hit: single-row load + one bcrypt (O(1)). Re-check hash so rotated keys die immediately.
 	if raw, ok := svc.authCache.Load(keyHash); ok {
 		entry := raw.(*authCacheEntry)
 		if time.Now().Before(entry.expiresAt) {
 			user, err := svc.DAO.GetByID(entry.userID)
-			if err == nil && bcrypt.CompareHashAndPassword([]byte(user.ApiKey), []byte(providedKey)) == nil {
+			if err == nil && user.DisabledAt == nil && bcrypt.CompareHashAndPassword([]byte(user.ApiKey), []byte(providedKey)) == nil {
 				log.Printf("[AuthenticateUser] cache hit: ID=%d", user.ID)
 				return user, nil
 			}
-			// User gone, key rotated, or DB error — drop stale mapping.
 			svc.authCache.Delete(keyHash)
 		} else {
 			svc.authCache.Delete(keyHash)
 		}
 	}
 
-	// Cache miss: full GetAll + bcrypt scan.
-	users, err := svc.DAO.GetAll()
-	if err != nil {
-		return nil, fmt.Errorf("ошибка доступа к базе данных")
-	}
-
-	var matchedUserID int = -1
-	for _, user := range users {
-		if err := bcrypt.CompareHashAndPassword([]byte(user.ApiKey), []byte(providedKey)); err == nil {
-			matchedUserID = user.ID
-			log.Printf("[AuthenticateUser] Найдено совпадение для пользователя ID=%d, Name=%s",
-				user.ID, user.Name)
-			break
+	if user, err := svc.DAO.GetByKeyLookup(keyHash); err == nil && user != nil {
+		if accept, authErr := svc.acceptKey(user, providedKey, keyHash); authErr != nil || accept != nil {
+			return accept, authErr
 		}
 	}
 
-	if matchedUserID == -1 {
-		log.Printf("[AuthenticateUser] Недействительный API ключ")
-		return nil, fmt.Errorf("недействительный API ключ")
-	}
-
-	matchedUser, err := svc.DAO.GetByID(matchedUserID)
+	legacy, err := svc.DAO.ListMissingKeyLookup()
 	if err != nil {
-		return nil, fmt.Errorf("ошибка получения данных пользователя")
+		return nil, fmt.Errorf("ошибка доступа к базе данных")
+	}
+	for i := range legacy {
+		user := &legacy[i]
+		if bcrypt.CompareHashAndPassword([]byte(user.ApiKey), []byte(providedKey)) != nil {
+			continue
+		}
+		user.KeyLookup = keyHash
+		if err := svc.DAO.Update(user); err != nil {
+			log.Printf("[AuthenticateUser] не удалось записать key_lookup для ID=%d: %v", user.ID, err)
+		}
+		return svc.finishAuth(user, keyHash)
 	}
 
-	// Store in cache (keyed by SHA-256 of plaintext key; never store the key itself).
+	svc.rememberNegative(keyHash)
+	log.Printf("[AuthenticateUser] Недействительный API ключ")
+	return nil, fmt.Errorf("недействительный API ключ")
+}
+
+func (svc *UserService) acceptKey(user *models.User, providedKey, keyHash string) (*models.User, error) {
+	if bcrypt.CompareHashAndPassword([]byte(user.ApiKey), []byte(providedKey)) != nil {
+		return nil, nil
+	}
+	return svc.finishAuth(user, keyHash)
+}
+
+func (svc *UserService) finishAuth(user *models.User, keyHash string) (*models.User, error) {
+	if user.DisabledAt != nil {
+		return nil, fmt.Errorf("учётная запись отключена")
+	}
 	svc.authCache.Store(keyHash, &authCacheEntry{
-		userID:    matchedUserID,
+		userID:    user.ID,
 		expiresAt: time.Now().Add(authCacheTTL),
 	})
+	log.Printf("[AuthenticateUser] Успешная аутентификация пользователя: ID=%d, Name=%s", user.ID, user.Name)
+	return user, nil
+}
 
-	log.Printf("[AuthenticateUser] Успешная аутентификация пользователя: ID=%d, Name=%s",
-		matchedUser.ID, matchedUser.Name)
-	return matchedUser, nil
+func (svc *UserService) negativeCached(keyHash string) bool {
+	raw, ok := svc.authCache.Load("neg:" + keyHash)
+	if !ok {
+		return false
+	}
+	entry := raw.(*authCacheEntry)
+	if time.Now().Before(entry.expiresAt) {
+		return true
+	}
+	svc.authCache.Delete("neg:" + keyHash)
+	return false
+}
+
+func (svc *UserService) rememberNegative(keyHash string) {
+	svc.authCache.Store("neg:"+keyHash, &authCacheEntry{
+		expiresAt: time.Now().Add(time.Minute),
+	})
 }
 
 // sha256KeyHex returns the hex-encoded SHA-256 of key. Used as cache key so no
@@ -240,6 +274,9 @@ func (svc *UserService) RegenerateUserQR(userID int, plainKey ...string) (*model
 
 	var key string
 	if len(plainKey) > 0 && plainKey[0] != "" {
+		if len(plainKey[0]) < 16 {
+			return nil, "", fmt.Errorf("API ключ слишком короткий")
+		}
 		key = plainKey[0]
 	} else {
 		key, err = generateSecureAPIKey()
@@ -262,6 +299,7 @@ func (svc *UserService) RegenerateUserQR(userID int, plainKey ...string) (*model
 	}
 
 	user.ApiKey = string(hashedKey)
+	user.KeyLookup = sha256KeyHex(key)
 	user.QRCode = qrCodeURL
 	if err := svc.DAO.Update(user); err != nil {
 		log.Printf("[UserService RegenerateUserQR] Ошибка обновления пользователя: %v", err)
@@ -272,6 +310,40 @@ func (svc *UserService) RegenerateUserQR(userID int, plainKey ...string) (*model
 
 	log.Printf("[UserService RegenerateUserQR] QR перегенерирован: ID=%d, Name=%s", user.ID, user.Name)
 	return user, key, nil
+}
+
+// SetUserDisabled отключает или включает учётку, не удаляя локации и визиты.
+func (svc *UserService) SetUserDisabled(id int, disabled bool, actorID int) (*models.User, error) {
+	user, err := svc.DAO.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if disabled && user.IsAdmin && user.ID == actorID {
+		admins, err := svc.DAO.GetAll()
+		if err != nil {
+			return nil, err
+		}
+		activeAdmins := 0
+		for _, a := range admins {
+			if a.IsAdmin && a.DisabledAt == nil {
+				activeAdmins++
+			}
+		}
+		if activeAdmins <= 1 {
+			return nil, fmt.Errorf("нельзя отключить последнего администратора")
+		}
+	}
+	if disabled {
+		now := time.Now().UTC()
+		user.DisabledAt = &now
+	} else {
+		user.DisabledAt = nil
+	}
+	if err := svc.DAO.Update(user); err != nil {
+		return nil, err
+	}
+	svc.invalidateAuthCacheForUser(id)
+	return user, nil
 }
 
 // GetAllUsers возвращает список всех пользователей.

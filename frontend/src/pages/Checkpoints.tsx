@@ -104,7 +104,10 @@ const Checkpoints: React.FC = () => {
                         </tbody>
                     </table>
                 ) : (
-                    <p>Нет созданных чекпоинтов</p>
+                    <div className="empty-state">
+                        <p className="empty-state-title">Нет созданных чекпоинтов</p>
+                        <p className="empty-state-hint">Создайте зону формой выше — укажите точку на карте и радиус.</p>
+                    </div>
                 )}
             </div>
         </div>

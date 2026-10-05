@@ -1,6 +1,7 @@
 // components/QRCodeDisplay.tsx
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import Modal from './Modal';
 
 interface QRCodeDisplayProps {
     onClose?: () => void;
@@ -47,7 +48,6 @@ const QRCodeDisplay: React.FC<QRCodeDisplayProps> = ({ onClose, userId, userName
                     throw new Error(`Ошибка ${response.status}: ${response.statusText}`);
                 }
 
-                // Получаем blob и конвертируем в Data URL
                 const blob = await response.blob();
                 const reader = new FileReader();
                 reader.onloadend = () => {
@@ -70,50 +70,47 @@ const QRCodeDisplay: React.FC<QRCodeDisplayProps> = ({ onClose, userId, userName
         fetchQRCode();
     }, [userId, apiKey, refreshKey]);
 
-    // Формируем заголовок окна
     const modalTitle = userId && userName
         ? `QR-код пользователя: ${userName}`
         : 'QR-код для аутентификации';
 
+    const close = () => onClose?.();
+
     return (
-        <div className="qr-code-modal">
-            <div className="qr-code-container">
-                <div className="qr-code-header">
-                    <h3>{modalTitle}</h3>
-                    <button className="close-button" onClick={onClose}>×</button>
-                </div>
-
-                <div className="qr-code-content">
-                    {error ? (
-                        <div className="error-message">{error}</div>
-                    ) : (
-                        <>
-                            <p>Отсканируйте этот QR-код с помощью мобильного приложения для аутентификации.</p>
-                            <p className="qr-code-hint">
-                                После перегенерации старый ключ перестаёт работать — на телефоне нужно отсканировать новый QR.
-                            </p>
-                            <p className="qr-code-hint">
-                                Если картинка не обновилась — закройте окно и откройте QR снова (Ctrl+F5 на странице).
-                            </p>
-                            <div className="qr-image-container">
-                                {loading && <div className="loading-indicator">Загрузка...</div>}
-                                {imageData && (
-                                    <img
-                                        src={imageData}
-                                        alt="QR-код для аутентификации"
-                                        style={{ display: loading ? 'none' : 'block' }}
-                                    />
-                                )}
-                            </div>
-                        </>
-                    )}
-                </div>
-
-                <div className="qr-code-footer">
-                    <button className="button" onClick={onClose}>Закрыть</button>
-                </div>
-            </div>
-        </div>
+        <Modal
+            title={modalTitle}
+            onClose={close}
+            contentClassName="qr-code-container"
+            footer={
+                <button type="button" className="btn-secondary button" onClick={close}>
+                    Закрыть
+                </button>
+            }
+        >
+            {error ? (
+                <div className="error-message">{error}</div>
+            ) : (
+                <>
+                    <p>Отсканируйте этот QR-код с помощью мобильного приложения для аутентификации.</p>
+                    <p className="qr-code-hint">
+                        После перегенерации старый ключ перестаёт работать — на телефоне нужно отсканировать новый QR.
+                    </p>
+                    <p className="qr-code-hint">
+                        Если картинка не обновилась — закройте окно и откройте QR снова (Ctrl+F5 на странице).
+                    </p>
+                    <div className="qr-image-container">
+                        {loading && <div className="loading-indicator">Загрузка...</div>}
+                        {imageData && (
+                            <img
+                                src={imageData}
+                                alt="QR-код для аутентификации"
+                                style={{ display: loading ? 'none' : 'block' }}
+                            />
+                        )}
+                    </div>
+                </>
+            )}
+        </Modal>
     );
 };
 

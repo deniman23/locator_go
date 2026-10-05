@@ -7,6 +7,7 @@ import {
     type UserDeviceStatus,
     waitForFreshHealthReport,
 } from '../utils/userDeviceStatus';
+import Modal from './Modal';
 
 type Props = {
     user: User;
@@ -121,7 +122,11 @@ const DeviceControlPanel: React.FC<Props> = ({
 
     useEffect(() => {
         const next = formFromReport(status?.report);
-        setForm(next);
+        setForm((prev) => ({
+            ...next,
+            adminPin: prev.adminPin,
+            pushApiKey: prev.pushApiKey,
+        }));
         setBaselineForm(next);
     }, [status?.report]);
 
@@ -256,15 +261,14 @@ const DeviceControlPanel: React.FC<Props> = ({
     };
 
     return (
-        <div className="qr-code-modal device-control-modal" role="dialog" aria-modal="true">
-            <div className="device-control-container">
-                <div className="device-control-header">
-                    <h3>Устройство: {user.name}</h3>
-                    <button className="close-button" type="button" onClick={onClose} disabled={busy}>
-                        ×
-                    </button>
-                </div>
-
+        <Modal
+            title={`Устройство: ${user.name}`}
+            onClose={() => {
+                if (!busy) onClose();
+            }}
+            contentClassName="device-control-container"
+            className="device-control-modal"
+        >
                 {notice && <p className="device-control-notice">{notice}</p>}
 
                 <div className="device-control-body">
@@ -491,7 +495,7 @@ const DeviceControlPanel: React.FC<Props> = ({
                                 <label htmlFor={`api-key-${user.id}`}>Отправить API-ключ на телефон</label>
                                 <input
                                     id={`api-key-${user.id}`}
-                                    type="text"
+                                    type="password"
                                     autoComplete="off"
                                     placeholder="вставьте ключ или используйте «Перегенерировать QR»"
                                     value={form.pushApiKey}
@@ -522,8 +526,7 @@ const DeviceControlPanel: React.FC<Props> = ({
                         )}
                     </section>
                 </div>
-            </div>
-        </div>
+        </Modal>
     );
 };
 

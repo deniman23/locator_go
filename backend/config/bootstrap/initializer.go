@@ -71,7 +71,7 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 		rmqURL := fmt.Sprintf("amqp://%s:%s@%s:%s/", user, pass, host, port)
 		rmqClient, err = messaging.NewRabbitMQClient(rmqURL)
 		if err == nil {
-			log.Printf("Подключились к RabbitMQ по %s", rmqURL)
+			log.Printf("Подключились к RabbitMQ %s:%s", host, port)
 			break
 		}
 		log.Printf("⏳ waiting for RabbitMQ at %s:%s … (%v)", host, port, err)
@@ -84,19 +84,10 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 	// Создаём Publisher с exchange="" и routing key="location_events"
 	publisher := messaging.NewPublisher(rmqClient, "", "location_events")
 
-	// Объявляем очередь "location_events"
-	queue, err := rmqClient.Channel.QueueDeclare(
-		"location_events",
-		true,  // durable
-		false, // delete when unused
-		false, // exclusive
-		false, // no-wait
-		nil,   // args
-	)
-	if err != nil {
-		log.Printf("Ошибка объявления очереди: %v", err)
+	if err := rmqClient.EnsureLocationQueue(); err != nil {
+		log.Printf("Ошибка объявления очереди location_events: %v", err)
 	} else {
-		log.Printf("Очередь '%s' объявлена успешно", queue.Name)
+		log.Printf("Очередь location_events объявлена")
 	}
 
 	// 4. Инициализация DAO, сервисов и контроллеров
@@ -134,9 +125,20 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 
 	visitEventProcessor := service.NewVisitEventProcessor(checkpointService, visitService, locationDAO)
 	visitEventConsumer := messaging.NewConsumer(rmqClient, "location_events")
-	if err := visitEventConsumer.Consume(visitEventProcessor.ProcessEvent); err != nil {
-		return nil, fmt.Errorf("visit event consumer: %w", err)
-	}
+	go func() {
+		for {
+			err := visitEventConsumer.Consume(visitEventProcessor.ProcessEvent)
+			log.Printf("Обработчик визитов остановлен: %v", err)
+			time.Sleep(2 * time.Second)
+			if err := rmqClient.Reconnect(); err != nil {
+				log.Printf("RabbitMQ reconnect: %v", err)
+				continue
+			}
+			if err := rmqClient.EnsureLocationQueue(); err != nil {
+				log.Printf("RabbitMQ queue: %v", err)
+			}
+		}
+	}()
 	log.Println("Обработчик визитов запущен (очередь location_events)")
 
 	eventController := controllers.NewEventController(publisher)
@@ -158,6 +160,19 @@ func InitializeApp(dbLogger logger.Interface) (*App, error) {
 		userController,
 		userService,
 	)
+
+	sqlDB, sqlErr := dbConn.DB()
+	routerEngine.GET("/readyz", func(c *gin.Context) {
+		if sqlErr != nil || sqlDB == nil || sqlDB.Ping() != nil {
+			c.JSON(503, gin.H{"status": "db"})
+			return
+		}
+		if rmqClient.Conn == nil || rmqClient.Conn.IsClosed() {
+			c.JSON(503, gin.H{"status": "rabbit"})
+			return
+		}
+		c.JSON(200, gin.H{"status": "ready"})
+	})
 
 	app := &App{
 		Router:    routerEngine,

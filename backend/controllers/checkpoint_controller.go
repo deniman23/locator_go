@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"errors"
 	"locator/config/messaging"
 	"locator/models"
 	"locator/service"
@@ -49,6 +50,10 @@ func (cc *CheckpointController) PostCheckpoint(ctx *gin.Context) {
 	}
 	cp, err := cc.Service.CreateCheckpoint(req.Name, req.Latitude, req.Longitude, req.Radius)
 	if err != nil {
+		if errors.Is(err, service.ErrCheckpointInvalid) {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Укажите имя, координаты в диапазоне и радиус больше 0"})
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания чекпоинта"})
 		return
 	}
@@ -88,7 +93,26 @@ func (cc *CheckpointController) UpdateCheckpoint(ctx *gin.Context) {
 
 	cp, err := cc.Service.UpdateCheckpoint(id, req.Name, req.Latitude, req.Longitude, req.Radius)
 	if err != nil {
+		if errors.Is(err, service.ErrCheckpointInvalid) {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Укажите имя, координаты в диапазоне и радиус больше 0"})
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка обновления чекпоинта"})
+		return
+	}
+	ctx.JSON(http.StatusOK, cp)
+}
+
+// ArchiveCheckpoint снимает зону с учёта, не удаляя строку и визиты.
+func (cc *CheckpointController) ArchiveCheckpoint(ctx *gin.Context) {
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil || id <= 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID чекпоинта"})
+		return
+	}
+	cp, err := cc.Service.ArchiveCheckpoint(id)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Чекпоинт не найден"})
 		return
 	}
 	ctx.JSON(http.StatusOK, cp)
@@ -121,6 +145,18 @@ func (cc *CheckpointController) CheckUserInCheckpoint(ctx *gin.Context) {
 	loc, err := cc.LocationService.GetLocation(userID)
 	if err != nil || loc == nil {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": "Локация пользователя не найдена"})
+		return
+	}
+	seenAt := loc.CreatedAt
+	if loc.CapturedAt != nil {
+		seenAt = *loc.CapturedAt
+	}
+	age := time.Since(seenAt)
+	if age > 10*time.Minute || age < -time.Minute {
+		ctx.JSON(http.StatusConflict, gin.H{
+			"error":       "Точка слишком старая для проверки присутствия",
+			"age_seconds": int(age.Seconds()),
+		})
 		return
 	}
 

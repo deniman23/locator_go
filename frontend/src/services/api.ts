@@ -3,10 +3,25 @@ import type {Checkpoint, Location, LocationEvent, User, Visit} from '../types/mo
 
 const api = axios.create({
     baseURL: '/api',
+    timeout: 20000,
     headers: {
         'Content-Type': 'application/json'
     }
 });
+
+api.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        const status = error?.response?.status;
+        if (status === 401 && sessionStorage.getItem('apiKey')) {
+            sessionStorage.removeItem('apiKey');
+            if (!window.location.pathname.startsWith('/login')) {
+                window.location.assign('/login');
+            }
+        }
+        return Promise.reject(error);
+    }
+);
 
 // Функция для добавления API ключа в конфигурацию запроса
 const withApiKey = (apiKey?: string) => {
@@ -281,7 +296,10 @@ export const userApi = {
             });
 
             if (!response.ok) {
-                throw new Error('Неверный API ключ');
+                if (response.status === 401) {
+                    throw new Error('Неверный API ключ');
+                }
+                throw new Error(`Ошибка сервера (${response.status})`);
             }
 
             const userData = await response.json();
@@ -297,6 +315,9 @@ export const userApi = {
             };
 
         } catch (error) {
+            if (error instanceof Error && (error.message === 'Неверный API ключ' || error.message.startsWith('Ошибка сервера'))) {
+                throw error;
+            }
             console.error('Ошибка аутентификации:', error);
             throw new Error('Ошибка аутентификации');
         }
@@ -344,6 +365,17 @@ export const userApi = {
         }
 
         return response.json();
+    },
+
+    setDisabled: async (id: number, disabled: boolean, apiKey: string): Promise<void> => {
+        const response = await fetch(`/api/users/${id}/${disabled ? 'disable' : 'enable'}`, {
+            method: 'POST',
+            headers: { 'X-API-Key': apiKey },
+        });
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new Error(typeof body.error === 'string' ? body.error : 'Не удалось изменить статус');
+        }
     },
 
     getById: async (id: number, apiKey: string): Promise<User> => {

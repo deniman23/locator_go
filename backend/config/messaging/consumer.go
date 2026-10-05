@@ -1,6 +1,13 @@
 // Package messaging messaging/consumer.go
 package messaging
 
+import (
+	"errors"
+	"strings"
+
+	"locator/service"
+)
+
 // Consumer отвечает за получение и обработку сообщений из указанной очереди.
 type Consumer struct {
 	Client    *RabbitMQClient
@@ -15,32 +22,43 @@ func NewConsumer(client *RabbitMQClient, queueName string) *Consumer {
 	}
 }
 
-// Consume начинает прослушивание очереди и вызывает handler для каждого полученного сообщения.
+// Consume читает очередь, пока канал не закроется.
+// Битый JSON не возвращается в очередь. Ошибки БД повторяются ограниченно.
 func (c *Consumer) Consume(handler func([]byte) error) error {
 	msgs, err := c.Client.Channel.Consume(
-		c.QueueName, // название очереди
-		"",          // consumer tag
-		false,       // auto-ack (false позволит нам вручную подтверждать сообщение)
-		false,       // exclusive
-		false,       // no-local
-		false,       // no-wait
-		nil,         // args
+		c.QueueName,
+		"",
+		false,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
 		return err
 	}
 
-	go func() {
-		for msg := range msgs {
-			if err := handler(msg.Body); err != nil {
-				// Если обработка не удалась, отправляем nack, чтобы сообщение повторно доставлялось
-				msg.Nack(false, true)
-			} else {
-				// Если всё хорошо, подтверждаем обработку сообщения
-				msg.Ack(false)
+	for msg := range msgs {
+		err := handler(msg.Body)
+		if err == nil {
+			_ = msg.Ack(false)
+			continue
+		}
+		if errors.Is(err, service.ErrPoisonMessage) {
+			_ = msg.Nack(false, false)
+			continue
+		}
+		retries := 0
+		if raw, ok := msg.Headers["x-death"]; ok {
+			if deaths, ok := raw.([]interface{}); ok {
+				retries = len(deaths)
 			}
 		}
-	}()
-
-	return nil
+		if retries >= 5 || strings.Contains(err.Error(), "poison message") {
+			_ = msg.Nack(false, false)
+			continue
+		}
+		_ = msg.Nack(false, true)
+	}
+	return errors.New("consumer channel closed")
 }

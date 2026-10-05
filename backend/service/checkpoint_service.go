@@ -1,11 +1,26 @@
 package service
 
 import (
+	"errors"
 	"locator/models"
 	"log"
 	"math"
+	"strings"
 	"time"
 )
+
+// ErrCheckpointInvalid — имя, координаты или радиус не проходят проверку.
+var ErrCheckpointInvalid = errors.New("некорректный чекпоинт")
+
+func validateCheckpoint(name string, lat, lon, radius float64) error {
+	if strings.TrimSpace(name) == "" {
+		return ErrCheckpointInvalid
+	}
+	if lat < -90 || lat > 90 || lon < -180 || lon > 180 || radius <= 0 || radius > 100000 {
+		return ErrCheckpointInvalid
+	}
+	return nil
+}
 
 // CheckpointService отвечает за бизнес-логику, связанную с операциями над чекпоинтами.
 type CheckpointService struct {
@@ -19,6 +34,9 @@ func NewCheckpointService(dao checkpointRepository) *CheckpointService {
 
 // CreateCheckpoint создаёт новый чекпоинт с заданными параметрами.
 func (svc *CheckpointService) CreateCheckpoint(name string, lat, lon, radius float64) (*models.Checkpoint, error) {
+	if err := validateCheckpoint(name, lat, lon, radius); err != nil {
+		return nil, err
+	}
 	log.Printf("[CreateCheckpoint] Создание чекпоинта: Name=%s, Latitude=%.6f, Longitude=%.6f, Radius=%.2f м",
 		name, lat, lon, radius)
 	cp := &models.Checkpoint{
@@ -51,7 +69,37 @@ func (svc *CheckpointService) GetCheckpoints() ([]models.Checkpoint, error) {
 }
 
 // UpdateCheckpoint обновляет чекпоинт с заданным ID новыми параметрами.
+func (svc *CheckpointService) GetActiveCheckpoints() ([]models.Checkpoint, error) {
+	all, err := svc.GetCheckpoints()
+	if err != nil {
+		return nil, err
+	}
+	active := make([]models.Checkpoint, 0, len(all))
+	for _, cp := range all {
+		if cp.ArchivedAt == nil {
+			active = append(active, cp)
+		}
+	}
+	return active, nil
+}
+
+func (svc *CheckpointService) ArchiveCheckpoint(id int) (*models.Checkpoint, error) {
+	cp, err := svc.GetCheckpointByID(id)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	cp.ArchivedAt = &now
+	if err := svc.DAO.Update(cp); err != nil {
+		return nil, err
+	}
+	return cp, nil
+}
+
 func (svc *CheckpointService) UpdateCheckpoint(id int, name string, lat, lon, radius float64) (*models.Checkpoint, error) {
+	if err := validateCheckpoint(name, lat, lon, radius); err != nil {
+		return nil, err
+	}
 	cp, err := svc.GetCheckpointByID(id)
 	if err != nil {
 		log.Printf("[UpdateCheckpoint] Не удалось найти чекпоинт с ID=%d: %v", id, err)

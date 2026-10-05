@@ -3,12 +3,16 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
 	"gorm.io/gorm"
 	"locator/models"
 )
+
+// ErrPoisonMessage — тело сообщения не JSON. Его нельзя возвращать в очередь.
+var ErrPoisonMessage = errors.New("poison message")
 
 // visitLocationReader — для тестов и DAO: история точек при закрытии визита.
 type visitLocationReader interface {
@@ -42,12 +46,12 @@ func (vep *VisitEventProcessor) ProcessEvent(message []byte) error {
 	var event models.LocationEvent
 	if err := json.Unmarshal(message, &event); err != nil {
 		log.Printf("[ProcessEvent] Ошибка десериализации события: %v", err)
-		return err
+		return fmt.Errorf("%w: %v", ErrPoisonMessage, err)
 	}
 	log.Printf("[ProcessEvent] Событие успешно десериализовано: userID=%d, Latitude=%.6f, Longitude=%.6f",
 		event.UserID, event.Latitude, event.Longitude)
 
-	checkpoints, err := vep.CheckpointService.GetCheckpoints()
+	checkpoints, err := vep.CheckpointService.GetActiveCheckpoints()
 	if err != nil {
 		log.Printf("[ProcessEvent] Ошибка получения чекпоинтов: %v", err)
 		return err

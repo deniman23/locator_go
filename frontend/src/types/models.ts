@@ -3,6 +3,7 @@ export interface User {
     id: number;
     name: string;
     is_admin: boolean;
+    disabled_at?: string | null;
     created_at: string;
     updated_at: string;
     qr_code: string;

@@ -13,6 +13,8 @@ type userRepository interface {
 	Create(user *models.User) error
 	Update(user *models.User) error
 	GetByID(id int) (*models.User, error)
+	GetByKeyLookup(lookup string) (*models.User, error)
+	ListMissingKeyLookup() ([]models.User, error)
 	GetAll() ([]models.User, error)
 }
 

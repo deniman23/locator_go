@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"locator/config"
 	"locator/config/bootstrap"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -27,6 +32,16 @@ func main() {
 		ginMode = gin.ReleaseMode
 	}
 	gin.SetMode(ginMode)
+	if ginMode == gin.ReleaseMode {
+		switch strings.TrimSpace(os.Getenv("DB_PASSWORD")) {
+		case "", "change_me":
+			log.Fatal("DB_PASSWORD пустой или равен change_me")
+		}
+		switch strings.TrimSpace(os.Getenv("RABBITMQ_USER")) {
+		case "", "guest":
+			log.Fatal("RABBITMQ_USER пустой или равен guest")
+		}
+	}
 
 	// Инициализируем приложение и передаём логгер для работы с БД.
 	app, err := bootstrap.InitializeApp(dbLogger)
@@ -54,10 +69,22 @@ func main() {
 		}
 	}
 
-	defer app.RMQClient.Close()
-	log.Println("Сервер запущен на порту 8080")
+	srv := &http.Server{Addr: ":8080", Handler: app.Router}
+	go func() {
+		log.Println("Сервер запущен на порту 8080")
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Ошибка запуска сервера: %v", err)
+		}
+	}()
 
-	if err := app.Router.Run(":8080"); err != nil {
-		log.Fatalf("Ошибка запуска сервера: %v", err)
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
+	log.Println("Остановка сервера")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("shutdown: %v", err)
 	}
+	app.RMQClient.Close()
 }

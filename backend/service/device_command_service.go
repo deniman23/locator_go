@@ -21,6 +21,7 @@ var (
 
 const deviceCommandPendingTTL = 15 * time.Minute
 const deviceCommandAppUpdateTTL = 48 * time.Hour
+const deviceCommandLease = 2 * time.Minute
 
 var allowedDeviceCommandTypes = map[string]struct{}{
 	models.DeviceCommandTypeLocationRequest: {},
@@ -94,24 +95,31 @@ func (svc *DeviceCommandService) EnqueueCommand(userID int, cmdType string, payl
 	return cmd, nil
 }
 
+// EnqueueCommandAs ставит команду и запоминает админа, который её отправил.
+func (svc *DeviceCommandService) EnqueueCommandAs(adminID, userID int, cmdType string, payload map[string]interface{}) (*models.DeviceCommand, error) {
+	cmd, err := svc.EnqueueCommand(userID, cmdType, payload)
+	if err != nil || adminID <= 0 {
+		return cmd, err
+	}
+	if err := svc.DAO.SetCreatedBy(cmd.ID, adminID); err != nil {
+		return nil, err
+	}
+	cmd.CreatedBy = &adminID
+	return cmd, nil
+}
+
 // Poll возвращает следующую команду и помечает её доставленной.
 func (svc *DeviceCommandService) Poll(userID int) (*models.DeviceCommand, error) {
 	_ = svc.expireStale()
 
-	cmd, err := svc.DAO.GetNextPending(userID)
+	now := time.Now()
+	cmd, err := svc.DAO.ClaimNext(userID, now, deviceCommandLease)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-
-	now := time.Now()
-	if err := svc.DAO.MarkDelivered(cmd.ID, now); err != nil {
-		return nil, err
-	}
-	cmd.Status = models.DeviceCommandStatusDelivered
-	cmd.DeliveredAt = &now
 	return cmd, nil
 }
 
@@ -142,6 +150,7 @@ func (svc *DeviceCommandService) Ack(commandID string, userID int, status, messa
 		if err := svc.DAO.MarkAcked(commandID, status, message, now); err != nil {
 			return err
 		}
+		_ = svc.DAO.RedactAPIKey(commandID)
 	} else if cmd.Type == models.DeviceCommandTypeAppUpdate {
 		if _, progress := appUpdateProgressAck[status]; progress {
 			if err := svc.DAO.MarkProgress(commandID, status, message, now); err != nil {

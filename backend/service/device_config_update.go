@@ -2,6 +2,8 @@ package service
 
 import (
 	"errors"
+	"net/url"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -40,11 +42,11 @@ func BuildConfigUpdatePayload(userID int, in DeviceConfigUpdateInput) (map[strin
 		payload["user_id"] = userID
 	}
 	if in.APIBaseURL != nil {
-		url := strings.TrimSpace(strings.TrimRight(*in.APIBaseURL, "/"))
-		if url == "" || !strings.HasPrefix(url, "http") {
+		raw := strings.TrimSpace(strings.TrimRight(*in.APIBaseURL, "/"))
+		if !allowedDeviceBaseURL(raw) {
 			return nil, ErrDeviceConfigUpdateInvalid
 		}
-		payload["api_base_url"] = url
+		payload["api_base_url"] = raw
 	}
 	if in.TrackingPaused != nil {
 		payload["tracking_paused"] = *in.TrackingPaused
@@ -88,4 +90,33 @@ func BuildConfigUpdatePayload(userID int, in DeviceConfigUpdateInput) (map[strin
 		return nil, ErrDeviceConfigUpdateEmpty
 	}
 	return payload, nil
+}
+
+// allowedDeviceBaseURL разрешает https, localhost и ровно тот хост, что в BASE_URL.
+// Чужой http-адрес в команду устройства не попадает.
+func allowedDeviceBaseURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" || parsed.User != nil {
+		return false
+	}
+	switch parsed.Scheme {
+	case "https":
+		return true
+	case "http":
+		host := parsed.Hostname()
+		if host == "localhost" || host == "127.0.0.1" {
+			return true
+		}
+		base := strings.TrimSpace(os.Getenv("BASE_URL"))
+		if base == "" {
+			return false
+		}
+		bu, err := url.Parse(base)
+		if err != nil || bu.Host == "" {
+			return false
+		}
+		return strings.EqualFold(bu.Host, parsed.Host)
+	default:
+		return false
+	}
 }

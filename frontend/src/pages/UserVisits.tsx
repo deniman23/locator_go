@@ -38,49 +38,45 @@ const UserVisits: React.FC = () => {
         showOutside: false,
     });
 
-    // Состояние для сопоставления ID чекпоинта и его названия
+    const [users, setUsers] = useState<User[]>([]);
+    const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [checkpointMap, setCheckpointMap] = useState<Record<number, string>>({});
-    // Состояние для сопоставления ID пользователя и его имени
     const [userMap, setUserMap] = useState<Record<number, string>>({});
 
-    // Получаем API ключ из контекста авторизации
     const { apiKey } = useAuth();
 
-    // Загружаем чекпоинты и формируем словарь (ID -> название)
     useEffect(() => {
-        if (apiKey) {
-            checkpointApi.getAll(apiKey)
-                .then(response => {
-                    const map: Record<number, string> = {};
-                    response.data.forEach((checkpoint: Checkpoint) => {
-                        map[checkpoint.id] = checkpoint.name;
-                    });
-                    setCheckpointMap(map);
-                })
-                .catch(err => {
-                    console.error("Ошибка загрузки чекпоинтов:", err);
+        if (!apiKey) return;
+        checkpointApi.getAll(apiKey)
+            .then(response => {
+                setCheckpoints(response.data);
+                const map: Record<number, string> = {};
+                response.data.forEach((checkpoint: Checkpoint) => {
+                    map[checkpoint.id] = checkpoint.name;
                 });
-        }
+                setCheckpointMap(map);
+            })
+            .catch(err => {
+                console.error('Ошибка загрузки чекпоинтов:', err);
+            });
     }, [apiKey]);
 
-    // Загружаем пользователей и формируем словарь (ID -> имя)
     useEffect(() => {
-        if (apiKey) {
-            userApi.getAll(apiKey)
-                .then((users: User[]) => {
-                    const map: Record<number, string> = {};
-                    users.forEach((user: User) => {
-                        map[user.id] = user.name;
-                    });
-                    setUserMap(map);
-                })
-                .catch(err => {
-                    console.error("Ошибка загрузки пользователей:", err);
+        if (!apiKey) return;
+        userApi.getAll(apiKey)
+            .then((list: User[]) => {
+                setUsers(list);
+                const map: Record<number, string> = {};
+                list.forEach((user: User) => {
+                    map[user.id] = user.name;
                 });
-        }
+                setUserMap(map);
+            })
+            .catch(err => {
+                console.error('Ошибка загрузки пользователей:', err);
+            });
     }, [apiKey]);
 
-    // Функция для загрузки визитов с применением фильтров
     const fetchVisits = useCallback(async () => {
         if (!apiKey) {
             setError('Отсутствует API ключ. Пожалуйста, войдите в систему.');
@@ -92,7 +88,6 @@ const UserVisits: React.FC = () => {
             setLoading(true);
             setError(null);
 
-            // Создаем параметры для запроса
             const params: {
                 id?: number;
                 user_id?: number;
@@ -102,7 +97,6 @@ const UserVisits: React.FC = () => {
                 include_outside?: boolean;
             } = {};
 
-            // Добавляем только непустые параметры
             if (filters.id && !isNaN(parseInt(filters.id))) {
                 params.id = parseInt(filters.id);
             }
@@ -127,7 +121,7 @@ const UserVisits: React.FC = () => {
 
             if (filters.showOutside) {
                 if (!filters.user_id || isNaN(parseInt(filters.user_id))) {
-                    setError('Для участков вне чекпоинтов укажите ID пользователя и период');
+                    setError('Для участков вне чекпоинтов выберите сотрудника и период');
                     setLoading(false);
                     return;
                 }
@@ -141,21 +135,21 @@ const UserVisits: React.FC = () => {
 
             const response = await visitApi.getWithFilters(params, apiKey);
             setVisits(response.data);
-        } catch (error) {
-            console.error('Ошибка при загрузке визитов:', error);
+        } catch (err) {
+            console.error('Ошибка при загрузке визитов:', err);
             setError('Ошибка при загрузке визитов');
         } finally {
             setLoading(false);
         }
     }, [apiKey, filters]);
 
-    // Загружаем визиты при первом рендере
     useEffect(() => {
         fetchVisits();
     }, [fetchVisits]);
 
-    const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value, type, checked } = e.target;
+    const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value, type } = e.target;
+        const checked = (e.target as HTMLInputElement).checked;
         setFilters(prev => ({
             ...prev,
             [name]: type === 'checkbox' ? checked : value,
@@ -172,7 +166,6 @@ const UserVisits: React.FC = () => {
             to: b.to,
             showOutside: false,
         });
-        setTimeout(fetchVisits, 0);
     };
 
     const visitMapRange = (visit: Visit): { from: string; to: string } => ({
@@ -203,40 +196,35 @@ const UserVisits: React.FC = () => {
 
             <div className="filters">
                 <h3>Фильтры</h3>
-                <div className="filter-group">
-                    <label htmlFor="id">ID визита:</label>
-                    <input
-                        type="text"
-                        id="id"
-                        name="id"
-                        value={filters.id}
-                        onChange={handleFilterChange}
-                        placeholder="ID визита"
-                    />
-                </div>
 
                 <div className="filter-group">
-                    <label htmlFor="user_id">ID пользователя:</label>
-                    <input
-                        type="text"
+                    <label htmlFor="user_id">Сотрудник:</label>
+                    <select
                         id="user_id"
                         name="user_id"
                         value={filters.user_id}
                         onChange={handleFilterChange}
-                        placeholder="ID пользователя"
-                    />
+                    >
+                        <option value="">Все</option>
+                        {users.map(u => (
+                            <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                    </select>
                 </div>
 
                 <div className="filter-group">
-                    <label htmlFor="checkpoint_id">ID чекпоинта:</label>
-                    <input
-                        type="text"
+                    <label htmlFor="checkpoint_id">Чекпоинт:</label>
+                    <select
                         id="checkpoint_id"
                         name="checkpoint_id"
                         value={filters.checkpoint_id}
                         onChange={handleFilterChange}
-                        placeholder="ID чекпоинта"
-                    />
+                    >
+                        <option value="">Все</option>
+                        {checkpoints.map(cp => (
+                            <option key={cp.id} value={cp.id}>{cp.name}</option>
+                        ))}
+                    </select>
                 </div>
 
                 <div className="filter-group visits-date-range">
@@ -284,15 +272,30 @@ const UserVisits: React.FC = () => {
                         Показывать перемещения вне чекпоинтов
                     </label>
                     <p className="filter-hint">
-                        Участки по GPS, когда пользователь не в зоне ни одного чекпоинта. Нужны ID пользователя и период.
+                        Участки по GPS, когда сотрудник не в зоне ни одного чекпоинта. Нужны сотрудник и период.
                     </p>
                 </div>
 
+                <details className="filters-advanced">
+                    <summary>Расширенные</summary>
+                    <div className="filter-group">
+                        <label htmlFor="id">ID визита:</label>
+                        <input
+                            type="text"
+                            id="id"
+                            name="id"
+                            value={filters.id}
+                            onChange={handleFilterChange}
+                            placeholder="ID визита"
+                        />
+                    </div>
+                </details>
+
                 <div className="filter-buttons">
-                    <button onClick={fetchVisits} className="filter-button">
+                    <button onClick={fetchVisits} className="btn-primary filter-button" type="button">
                         Применить фильтры
                     </button>
-                    <button onClick={handleResetFilters} className="reset-button">
+                    <button onClick={handleResetFilters} className="btn-secondary reset-button" type="button">
                         Сбросить фильтры
                     </button>
                 </div>
@@ -332,7 +335,7 @@ const UserVisits: React.FC = () => {
                                 <td>
                                     <button
                                         type="button"
-                                        className="visit-map-button"
+                                        className="visit-map-button btn-secondary"
                                         onClick={() => openVisitOnMap(visit)}
                                     >
                                         Маршрут на карте
@@ -343,7 +346,12 @@ const UserVisits: React.FC = () => {
                         </tbody>
                     </table>
                 ) : (
-                    <p>Нет данных о визитах</p>
+                    <div className="empty-state">
+                        <p className="empty-state-title">Нет визитов за выбранный период</p>
+                        <p className="empty-state-hint">
+                            Сбросьте фильтры или проверьте сотрудника и даты (Europe/Minsk).
+                        </p>
+                    </div>
                 )}
             </div>
         </div>

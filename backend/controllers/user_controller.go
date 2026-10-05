@@ -310,7 +310,7 @@ func (uc *UserController) PostRegenerateUserQR(ctx *gin.Context) {
 			"api_key":      plainKey,
 			"user_id":      user.ID,
 		}
-		cmd, err := uc.CommandService.EnqueueCommand(user.ID, models.DeviceCommandTypeConfigUpdate, payload)
+		cmd, err := uc.CommandService.EnqueueCommandAs(currentUser.ID, user.ID, models.DeviceCommandTypeConfigUpdate, payload)
 		if err != nil {
 			log.Printf("[PostRegenerateUserQR] config_update не поставлен в очередь: %v", err)
 		} else {
@@ -319,6 +319,43 @@ func (uc *UserController) PostRegenerateUserQR(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, response)
+}
+
+func (uc *UserController) setDisabled(ctx *gin.Context, disabled bool) {
+	currentUser, ok := ctx.Get("user")
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Необходима авторизация"})
+		return
+	}
+	admin, ok := currentUser.(*models.User)
+	if !ok || !admin.IsAdmin {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Доступ разрешен только администраторам"})
+		return
+	}
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil || id <= 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID пользователя"})
+		return
+	}
+	user, err := uc.Service.SetUserDisabled(id, disabled, admin.ID)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{
+		"id":          user.ID,
+		"name":        user.Name,
+		"is_admin":    user.IsAdmin,
+		"disabled_at": user.DisabledAt,
+	})
+}
+
+func (uc *UserController) PostDisableUser(ctx *gin.Context) {
+	uc.setDisabled(ctx, true)
+}
+
+func (uc *UserController) PostEnableUser(ctx *gin.Context) {
+	uc.setDisabled(ctx, false)
 }
 
 // GetCurrentUser возвращает информацию о текущем аутентифицированном пользователе

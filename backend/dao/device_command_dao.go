@@ -1,10 +1,12 @@
 package dao
 
 import (
+	"errors"
 	"locator/models"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type DeviceCommandDAO struct {
@@ -25,6 +27,58 @@ func (dao *DeviceCommandDAO) GetByID(id string) (*models.DeviceCommand, error) {
 		return nil, err
 	}
 	return &cmd, nil
+}
+
+// ClaimNext берёт самую старую pending-команду или delivered с истёкшей арендой
+// и продлевает аренду. Два параллельных poll не получают одну и ту же строку.
+func (dao *DeviceCommandDAO) ClaimNext(userID int, now time.Time, lease time.Duration) (*models.DeviceCommand, error) {
+	var claimed models.DeviceCommand
+	err := dao.DB.Transaction(func(tx *gorm.DB) error {
+		var cmd models.DeviceCommand
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Where("user_id = ? AND (status = ? OR (status = ? AND (lease_until IS NULL OR lease_until < ?)))",
+				userID,
+				models.DeviceCommandStatusPending,
+				models.DeviceCommandStatusDelivered,
+				now,
+			).
+			Order("created_at ASC").
+			First(&cmd).Error
+		if err != nil {
+			return err
+		}
+		until := now.Add(lease)
+		if err := tx.Model(&models.DeviceCommand{}).Where("id = ?", cmd.ID).Updates(map[string]interface{}{
+			"status":       models.DeviceCommandStatusDelivered,
+			"delivered_at": now,
+			"lease_until":  until,
+		}).Error; err != nil {
+			return err
+		}
+		cmd.Status = models.DeviceCommandStatusDelivered
+		cmd.DeliveredAt = &now
+		cmd.LeaseUntil = &until
+		claimed = cmd
+		return nil
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &claimed, nil
+}
+
+func (dao *DeviceCommandDAO) SetCreatedBy(id string, adminID int) error {
+	return dao.DB.Model(&models.DeviceCommand{}).Where("id = ?", id).Update("created_by", adminID).Error
+}
+
+func (dao *DeviceCommandDAO) RedactAPIKey(id string) error {
+	return dao.DB.Exec(
+		`UPDATE device_commands SET payload = payload - 'api_key' WHERE id = ? AND payload ? 'api_key'`,
+		id,
+	).Error
 }
 
 func (dao *DeviceCommandDAO) GetNextPending(userID int) (*models.DeviceCommand, error) {

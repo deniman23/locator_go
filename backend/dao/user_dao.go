@@ -33,6 +33,24 @@ func (dao *UserDAO) GetByID(id int) (*models.User, error) {
 	return &user, nil
 }
 
+// GetByKeyLookup возвращает пользователя по SHA-256 ключа (один SELECT).
+func (dao *UserDAO) GetByKeyLookup(lookup string) (*models.User, error) {
+	var user models.User
+	if err := dao.DB.Where("key_lookup = ?", lookup).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// ListMissingKeyLookup — только учётки, созданные до колонки key_lookup.
+func (dao *UserDAO) ListMissingKeyLookup() ([]models.User, error) {
+	var users []models.User
+	if err := dao.DB.Where("key_lookup IS NULL OR key_lookup = ''").Find(&users).Error; err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
 // GetAll возвращает список всех пользователей.
 func (dao *UserDAO) GetAll() ([]models.User, error) {
 	var users []models.User

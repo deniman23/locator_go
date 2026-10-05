@@ -34,6 +34,26 @@ func (f *fakeUserRepo) GetByID(id int) (*models.User, error) {
 	cp := u
 	return &cp, nil
 }
+func (f *fakeUserRepo) GetByKeyLookup(lookup string) (*models.User, error) {
+	for _, u := range f.users {
+		if lookup != "" && u.KeyLookup == lookup {
+			cp := u
+			return &cp, nil
+		}
+	}
+	return nil, http.ErrNoCookie
+}
+
+func (f *fakeUserRepo) ListMissingKeyLookup() ([]models.User, error) {
+	out := make([]models.User, 0)
+	for _, u := range f.users {
+		if u.KeyLookup == "" {
+			out = append(out, u)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeUserRepo) GetAll() ([]models.User, error) {
 	out := make([]models.User, 0, len(f.users))
 	for _, u := range f.users {

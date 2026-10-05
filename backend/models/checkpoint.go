@@ -20,6 +20,9 @@ type Checkpoint struct {
 	// Radius — радиус зоны (в метрах), в пределах которого считается, что пользователь находится на чекпоинте.
 	Radius float64 `gorm:"not null" json:"radius"`
 
+	// ArchivedAt — зона больше не открывает визиты. Строка и история визитов остаются.
+	ArchivedAt *time.Time `json:"archived_at,omitempty"`
+
 	// CreatedAt — время создания записи.
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 

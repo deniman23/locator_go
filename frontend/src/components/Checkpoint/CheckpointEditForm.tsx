@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { checkpointApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import type { Checkpoint } from '../../types/models';
+import CheckpointLocationPicker from './CheckpointLocationPicker';
 
 interface CheckpointEditFormProps {
     checkpoint: Checkpoint;
@@ -9,11 +10,24 @@ interface CheckpointEditFormProps {
     onCancel?: () => void;
 }
 
+const validateCoords = (lat: number, lng: number, radius: number): string | null => {
+    if (isNaN(lat) || isNaN(lng) || isNaN(radius)) {
+        return 'Укажите точку на карте и корректный радиус';
+    }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        return 'Координаты вне допустимого диапазона';
+    }
+    if (radius <= 0) {
+        return 'Радиус должен быть больше 0';
+    }
+    return null;
+};
+
 const CheckpointEditForm: React.FC<CheckpointEditFormProps> = ({
-                                                                   checkpoint,
-                                                                   onSuccess,
-                                                                   onCancel
-                                                               }) => {
+    checkpoint,
+    onSuccess,
+    onCancel,
+}) => {
     const [name, setName] = useState(checkpoint.name);
     const [latitude, setLatitude] = useState(checkpoint.latitude.toString());
     const [longitude, setLongitude] = useState(checkpoint.longitude.toString());
@@ -22,10 +36,8 @@ const CheckpointEditForm: React.FC<CheckpointEditFormProps> = ({
     const [message, setMessage] = useState('');
     const [error, setError] = useState<string | null>(null);
 
-    // Получаем API ключ из контекста авторизации
     const { apiKey } = useAuth();
 
-    // Обновляем состояние, если пропсы изменились
     useEffect(() => {
         setName(checkpoint.name);
         setLatitude(checkpoint.latitude.toString());
@@ -36,7 +48,6 @@ const CheckpointEditForm: React.FC<CheckpointEditFormProps> = ({
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        // Проверяем наличие API ключа
         if (!apiKey) {
             setError('Отсутствует API ключ. Пожалуйста, войдите в систему снова.');
             return;
@@ -47,31 +58,32 @@ const CheckpointEditForm: React.FC<CheckpointEditFormProps> = ({
             setMessage('');
             setError(null);
 
-            // Преобразуем строковые значения в числа
             const checkpointData = {
                 name,
                 latitude: parseFloat(latitude),
                 longitude: parseFloat(longitude),
-                radius: parseFloat(radius)
+                radius: parseFloat(radius),
             };
 
-            // Проверяем валидность данных
-            if (isNaN(checkpointData.latitude) || isNaN(checkpointData.longitude) || isNaN(checkpointData.radius)) {
-                setError('Пожалуйста, введите корректные числовые значения');
+            const validationError = validateCoords(
+                checkpointData.latitude,
+                checkpointData.longitude,
+                checkpointData.radius,
+            );
+            if (validationError) {
+                setError(validationError);
                 return;
             }
 
-            // Отправляем запрос на обновление чекпоинта, передавая API ключ
             const response = await checkpointApi.update(checkpoint.id, checkpointData, apiKey);
 
             setMessage(`Чекпоинт "${response.data.name}" успешно обновлен!`);
 
-            // Вызываем функцию обратного вызова для обновления списка
             if (onSuccess) {
                 onSuccess();
             }
-        } catch (error) {
-            console.error('Ошибка при обновлении чекпоинта:', error);
+        } catch (err) {
+            console.error('Ошибка при обновлении чекпоинта:', err);
             setError('Произошла ошибка при обновлении чекпоинта');
         } finally {
             setLoading(false);
@@ -97,6 +109,16 @@ const CheckpointEditForm: React.FC<CheckpointEditFormProps> = ({
                     />
                 </div>
 
+                <CheckpointLocationPicker
+                    latitude={latitude}
+                    longitude={longitude}
+                    radius={radius}
+                    onChange={(lat, lng) => {
+                        setLatitude(lat.toFixed(6));
+                        setLongitude(lng.toFixed(6));
+                    }}
+                />
+
                 <div>
                     <label htmlFor="edit-latitude">Широта:</label>
                     <input
@@ -105,6 +127,7 @@ const CheckpointEditForm: React.FC<CheckpointEditFormProps> = ({
                         value={latitude}
                         onChange={(e) => setLatitude(e.target.value)}
                         required
+                        readOnly
                     />
                 </div>
 
@@ -116,6 +139,7 @@ const CheckpointEditForm: React.FC<CheckpointEditFormProps> = ({
                         value={longitude}
                         onChange={(e) => setLongitude(e.target.value)}
                         required
+                        readOnly
                     />
                 </div>
 
@@ -131,14 +155,14 @@ const CheckpointEditForm: React.FC<CheckpointEditFormProps> = ({
                 </div>
 
                 <div className="form-buttons">
-                    <button type="submit" disabled={loading}>
+                    <button type="submit" className="btn-primary" disabled={loading}>
                         {loading ? 'Сохранение...' : 'Сохранить'}
                     </button>
                     <button
                         type="button"
                         onClick={onCancel}
                         disabled={loading}
-                        className="cancel-button"
+                        className="btn-secondary cancel-button"
                     >
                         Отмена
                     </button>

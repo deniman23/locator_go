@@ -48,5 +48,6 @@ func DefaultAdmin(db *gorm.DB) {
 
 	// Поле QRCode в модели обновится внутри UserService с публичной ссылкой на QR картинку,
 	// а в логах мы получаем также plaintext API ключ (он доступен только при создании).
-	log.Printf("Дефолтный администратор успешно создан: %s (ID: %d). Plain API ключ: %s", user.Name, user.ID, plainKey)
+	_ = plainKey
+	log.Printf("Дефолтный администратор успешно создан: %s (ID: %d)", user.Name, user.ID)
 }

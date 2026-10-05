@@ -84,11 +84,11 @@ func (vs *VisitService) EndVisitAt(visit *models.Visit, at time.Time) error {
 	return nil
 }
 
-// AbandonVisit удаляет активный визит без записи в историю (короткий ложный визит).
+// AbandonVisit закрывает короткий визит, но оставляет строку в истории.
 func (vs *VisitService) AbandonVisit(visit *models.Visit) error {
-	log.Printf("[AbandonVisit] Удаление короткого визита: userID=%d, checkpointID=%d, VisitID=%d",
+	log.Printf("[AbandonVisit] Короткий визит закрыт без удаления: userID=%d, checkpointID=%d, VisitID=%d",
 		visit.UserID, visit.CheckpointID, visit.ID)
-	return vs.DAO.Delete(visit.ID)
+	return vs.EndVisitAt(visit, time.Now().UTC())
 }
 
 // GetVisits возвращает список визитов с применением переданных фильтров.

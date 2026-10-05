@@ -37,3 +37,9 @@ echo "[$(date -Is)] [backup-db] OK ($SIZE)"
 # Удаляем бэкапы старше KEEP_DAYS
 find "$BACKUP_DIR" -maxdepth 1 -type f -name "${DB_NAME}_*.sql.gz" -mtime +"$KEEP_DAYS" -delete 2>/dev/null || true
 echo "[$(date -Is)] [backup-db] Храним бэкапы за последние ${KEEP_DAYS} дней"
+
+if [[ -n "${OFFSITE_BACKUP_DIR:-}" ]]; then
+  mkdir -p "$OFFSITE_BACKUP_DIR"
+  cp "$OUT" "$OFFSITE_BACKUP_DIR/"
+  echo "[$(date -Is)] [backup-db] копия в OFFSITE_BACKUP_DIR"
+fi

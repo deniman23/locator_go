@@ -93,6 +93,7 @@ func InitRoutes(
 			checkpointGroup.GET("/", checkpointController.GetCheckpoints)
 			checkpointGroup.POST("/", checkpointController.PostCheckpoint)
 			checkpointGroup.PUT("/:id", checkpointController.UpdateCheckpoint)
+			checkpointGroup.POST("/:id/archive", checkpointController.ArchiveCheckpoint)
 			checkpointGroup.GET("/check", checkpointController.CheckUserInCheckpoint)
 		}
 
@@ -114,6 +115,8 @@ func InitRoutes(
 		{
 			userGroup.POST("/", userController.CreateUser)
 			userGroup.PUT("/:id", userController.UpdateUser)
+			userGroup.POST("/:id/disable", userController.PostDisableUser)
+			userGroup.POST("/:id/enable", userController.PostEnableUser)
 			userGroup.GET("/:id", userController.GetUser)
 			userGroup.GET("/", userController.GetAllUsers)
 			userGroup.GET("/qr-code", userController.GetQRCode)

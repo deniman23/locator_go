@@ -39,3 +39,16 @@ func TestBuildConfigUpdatePayloadInvalidPin(t *testing.T) {
 		t.Fatalf("expected invalid error, got %v", err)
 	}
 }
+
+func TestAllowedDeviceBaseURL(t *testing.T) {
+	t.Setenv("BASE_URL", "http://example.test:8080")
+	if !allowedDeviceBaseURL("https://phones.example") {
+		t.Fatal("https should be allowed")
+	}
+	if !allowedDeviceBaseURL("http://example.test:8080") {
+		t.Fatal("current BASE_URL host should be allowed")
+	}
+	if allowedDeviceBaseURL("http://evil.example") {
+		t.Fatal("foreign http host should be rejected")
+	}
+}
