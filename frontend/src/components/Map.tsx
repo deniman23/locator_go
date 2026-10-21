@@ -2,9 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { useSearchParams } from 'react-router-dom';
 import {
     MapContainer,
-    TileLayer,
     Circle,
-    CircleMarker,
     Polyline,
     Popup,
     useMap,
@@ -27,7 +25,8 @@ import {
     minskDayBounds,
     STAY_PERIOD_LOOKBACK_HOURS,
 } from '../utils/locationTrack';
-import { MAP_TILE_ATTRIBUTION, MAP_TILE_MAX_ZOOM, MAP_TILE_URL } from '../utils/mapTiles';
+import { MAP_TILE_MAX_ZOOM } from '../utils/mapTiles';
+import VectorBasemap from './VectorBasemap';
 
 type RoutePoint = Location & { isLast?: boolean };
 
@@ -42,6 +41,64 @@ L.Marker.prototype.options.icon = DefaultIcon;
 const getUserColor = (userId: number): string => {
     const hue = (userId * 137.508) % 360;
     return `hsl(${hue}, 70%, 50%)`;
+};
+
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// One Leaflet layer instead of thousands of React markers. A day of GPS used to
+// mount a CircleMarker + Popup per point and froze pan/zoom.
+const RoutePointsLayer = ({
+    points,
+    users,
+}: {
+    points: RoutePoint[];
+    users: User[];
+}) => {
+    const map = useMap();
+
+    useEffect(() => {
+        const names = new Map(users.map(u => [u.id, u.name]));
+        const layer = L.layerGroup();
+        for (const loc of points) {
+            const color = getUserColor(loc.user_id);
+            const userName = names.get(loc.user_id) || `ID: ${loc.user_id}`;
+            const captured = loc.captured_at ?? loc.created_at;
+            const serverLine =
+                loc.captured_at && loc.captured_at !== loc.created_at
+                    ? `<div class="popup-meta">На сервере: ${escapeHtml(formatDateTime(loc.created_at))}</div>`
+                    : '';
+            const lastLine = loc.isLast
+                ? '<div class="popup-meta">Последняя точка за период</div>'
+                : '';
+            const idLine = loc.id > 0 ? `<div class="popup-id">Запись #${loc.id}</div>` : '';
+            const marker = L.circleMarker([loc.latitude, loc.longitude], {
+                radius: loc.isLast ? 9 : 5,
+                color,
+                fillColor: color,
+                fillOpacity: loc.isLast ? 0.95 : 0.7,
+                weight: loc.isLast ? 3 : 1,
+            });
+            marker.bindPopup(
+                `<div class="popup-content"><strong>${escapeHtml(userName)}</strong>${lastLine}` +
+                    `<div>${escapeHtml(formatDateTime(captured))}</div>${serverLine}` +
+                    `<div class="popup-coords">${loc.latitude.toFixed(6)}, ${loc.longitude.toFixed(6)}</div>` +
+                    `${idLine}</div>`,
+            );
+            marker.addTo(layer);
+        }
+        layer.addTo(map);
+        return () => {
+            map.removeLayer(layer);
+        };
+    }, [map, points, users]);
+
+    return null;
 };
 
 const MapPositionSaver = () => {
@@ -639,6 +696,8 @@ const MapComponent: React.FC = () => {
                 <MapContainer
                     center={[initialPosition.lat, initialPosition.lng]}
                     zoom={initialPosition.zoom}
+                    maxZoom={MAP_TILE_MAX_ZOOM}
+                    preferCanvas
                     style={{ height: '100%', width: '100%' }}
                     scrollWheelZoom
                 >
@@ -650,11 +709,7 @@ const MapComponent: React.FC = () => {
                         fitNonce={fitNonce}
                     />
 
-                    <TileLayer
-                        url={MAP_TILE_URL}
-                        attribution={MAP_TILE_ATTRIBUTION}
-                        maxZoom={MAP_TILE_MAX_ZOOM}
-                    />
+                    <VectorBasemap />
 
                     {checkpoints.map(cp => (
                         <Circle
@@ -721,48 +776,7 @@ const MapComponent: React.FC = () => {
                         />
                     )}
 
-                    {routePoints.map((loc, index) => {
-                            const color = getUserColor(loc.user_id);
-                            const userName =
-                                allUsers.find(u => u.id === loc.user_id)?.name || `ID: ${loc.user_id}`;
-                            const radius = loc.isLast ? 9 : 5;
-                            const markerKey = `${loc.user_id}-${loc.id}-${index}`;
-                            return (
-                                <CircleMarker
-                                    key={markerKey}
-                                    center={[loc.latitude, loc.longitude]}
-                                    radius={radius}
-                                    pathOptions={{
-                                        color,
-                                        fillColor: color,
-                                        fillOpacity: loc.isLast ? 0.95 : 0.7,
-                                        weight: loc.isLast ? 3 : 1,
-                                    }}
-                                >
-                                    <Popup>
-                                        <div className="popup-content">
-                                            <strong>{userName}</strong>
-                                            {loc.isLast && (
-                                                <div className="popup-meta">Последняя точка за период</div>
-                                            )}
-                                            <div>{formatDateTime(loc.captured_at ?? loc.created_at)}</div>
-                                            {loc.captured_at &&
-                                                loc.captured_at !== loc.created_at && (
-                                                    <div className="popup-meta">
-                                                        На сервере: {formatDateTime(loc.created_at)}
-                                                    </div>
-                                                )}
-                                            <div className="popup-coords">
-                                                {loc.latitude.toFixed(6)}, {loc.longitude.toFixed(6)}
-                                            </div>
-                                            {loc.id > 0 && (
-                                                <div className="popup-id">Запись #{loc.id}</div>
-                                            )}
-                                        </div>
-                                    </Popup>
-                                </CircleMarker>
-                            );
-                        })}
+                    <RoutePointsLayer points={routePoints} users={allUsers} />
                 </MapContainer>
 
                 <div className="map-status-bar">

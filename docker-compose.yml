@@ -124,7 +124,9 @@ services:
     volumes:
       - ./tiles-data:/data:ro
     restart: unless-stopped
-    mem_limit: 768m
+    # Rendering a screen of PNG tiles needs headroom. At 768m the process
+    # stalled for tens of seconds once memory was full.
+    mem_limit: 1536m
 
   rabbitmq:
     image: rabbitmq:3.13-alpine

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
-import { MapContainer, TileLayer, Circle, Marker, useMap, useMapEvents } from 'react-leaflet';
-import { MAP_TILE_ATTRIBUTION, MAP_TILE_MAX_ZOOM, MAP_TILE_URL } from '../../utils/mapTiles';
+import { MapContainer, Circle, Marker, useMap, useMapEvents } from 'react-leaflet';
+import { MAP_TILE_MAX_ZOOM } from '../../utils/mapTiles';
+import VectorBasemap from '../VectorBasemap';
 import L from 'leaflet';
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
@@ -74,14 +75,12 @@ const CheckpointLocationPicker: React.FC<Props> = ({ latitude, longitude, radius
                 <MapContainer
                     center={MINSK}
                     zoom={11}
+                    maxZoom={MAP_TILE_MAX_ZOOM}
+                    preferCanvas
                     style={{ height: '100%', width: '100%' }}
                     scrollWheelZoom
                 >
-                    <TileLayer
-                        url={MAP_TILE_URL}
-                        attribution={MAP_TILE_ATTRIBUTION}
-                        maxZoom={MAP_TILE_MAX_ZOOM}
-                    />
+                    <VectorBasemap />
                     <Recenter center={center} hasPoint={hasPoint} />
                     <ClickHandler onPick={onChange} />
                     {hasPoint && (

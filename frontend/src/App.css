@@ -817,6 +817,12 @@ main {
   color: #374151;
 }
 
+.leaflet-gl-layer,
+.leaflet-gl-layer .maplibregl-canvas-container,
+.leaflet-gl-layer canvas {
+  pointer-events: none;
+}
+
 .map-main {
   flex: 1;
   min-width: 0;
