@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { deviceApi } from '../services/api';
 import type { User } from '../types/models';
 import { formatDateTime } from '../utils/dateFormat';
@@ -109,15 +109,24 @@ const DeviceControlPanel: React.FC<Props> = ({
 
     const report = status?.report;
 
+    const onStatusUpdateRef = useRef(onStatusUpdate);
+    onStatusUpdateRef.current = onStatusUpdate;
+    const refreshGen = useRef(0);
+
     const refreshStatus = useCallback(async () => {
+        const gen = ++refreshGen.current;
         const next = await fetchUserDeviceStatus(user.id, apiKey);
+        if (gen !== refreshGen.current) return next;
         setStatus(next);
-        onStatusUpdate(next);
+        onStatusUpdateRef.current(next);
         return next;
-    }, [apiKey, onStatusUpdate, user.id]);
+    }, [apiKey, user.id]);
 
     useEffect(() => {
         void refreshStatus();
+        return () => {
+            refreshGen.current += 1;
+        };
     }, [refreshStatus]);
 
     useEffect(() => {

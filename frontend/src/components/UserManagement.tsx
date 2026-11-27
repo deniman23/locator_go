@@ -132,6 +132,12 @@ const UserManagement: React.FC = () => {
         setDeviceStatus((prev) => ({ ...prev, [userId]: status }));
     };
 
+    const panelUserId = devicePanelUser?.id;
+    const handlePanelStatus = useCallback((status: UserDeviceStatus) => {
+        if (panelUserId == null) return;
+        setDeviceStatus((prev) => ({ ...prev, [panelUserId]: status }));
+    }, [panelUserId]);
+
     useEffect(() => {
         const fetchUsers = async () => {
             if (!apiKey) return;
@@ -528,7 +534,7 @@ const UserManagement: React.FC = () => {
                     apiKey={apiKey}
                     initialStatus={deviceStatus[devicePanelUser.id]}
                     onClose={() => setDevicePanelUser(null)}
-                    onStatusUpdate={(status) => applyUserStatus(devicePanelUser.id, status)}
+                    onStatusUpdate={handlePanelStatus}
                 />
             )}
 
